@@ -1,1 +1,45 @@
-# server_finder
+# ServerFinder
+
+Find files on your office server instantly, by name.
+
+Finder can't search shared server folders (SMB) well: Spotlight doesn't index network
+volumes, so searches come back empty or take forever. ServerFinder keeps its own list of
+the file names on the folders you choose, on your Mac, and searches that list as you type.
+
+It only reads file names. It never changes, moves or deletes anything on the server.
+
+See [docs/PRD.md](docs/PRD.md) for the full plan.
+
+## Using it
+
+1. Connect to the server in Finder as usual (**Go → Connect to Server…**).
+2. Open ServerFinder. The first time, Settings opens: click **Add** next to the connected
+   server folders you want to search (or **Add Folder…** to pick a subfolder).
+3. Click the magnifying glass in the menu bar and type part of a file name.
+   - **↑ / ↓** to pick a result, **Return** to open it, double-click works too.
+   - **Esc** clears the text; press it again to close.
+   - Right-click the menu bar icon for **Rescan Now**, **Settings…** and **Quit**.
+
+The list refreshes every time the app starts, and whenever you click **Rescan Now**. On a
+folder's first scan, results appear while it's still indexing.
+
+The app follows your Mac's language (Spanish or English).
+
+## Building
+
+Requires macOS 15 or later on Apple Silicon and the Swift toolchain (Xcode, or just the
+Command Line Tools: `xcode-select --install`).
+
+```sh
+scripts/build-app.sh            # builds build/ServerFinder.app
+scripts/build-app.sh --install  # also copies it to /Applications
+scripts/test.sh                 # runs the tests
+```
+
+During development, `swift run ServerFinder` starts the app without bundling it (in English,
+since translations are only added to the bundle).
+
+## Where data lives
+
+- Index: `~/Library/Application Support/ServerFinder/index.sqlite` (safe to delete; it's rebuilt on the next scan)
+- Settings: the `com.ulloa09.ServerFinder` preferences domain

@@ -1,0 +1,61 @@
+/* Menu bar icon and menus */
+"ServerFinder — click to search, right-click for options" = "ServerFinder — haz clic para buscar, clic derecho para más opciones";
+"Search Server Files" = "Buscar archivos del servidor";
+"Rescan Now" = "Volver a indexar ahora";
+"Settings…" = "Ajustes…";
+"Quit ServerFinder" = "Salir de ServerFinder";
+"Edit" = "Edición";
+"Undo" = "Deshacer";
+"Redo" = "Rehacer";
+"Cut" = "Cortar";
+"Copy" = "Copiar";
+"Paste" = "Pegar";
+"Select All" = "Seleccionar todo";
+"Window" = "Ventana";
+"Close" = "Cerrar";
+
+/* Status */
+"The search index couldn't be opened: %@" = "No se pudo abrir el índice de búsqueda: %@";
+"Indexing “%@”… %@ items found" = "Indexando “%1$@”… %2$@ elementos encontrados";
+"Indexing “%@”… %@ items found · %lld in queue" = "Indexando “%1$@”… %2$@ elementos encontrados · %3$lld en cola";
+"No folders selected yet" = "Aún no hay carpetas seleccionadas";
+"%@ items indexed" = "%@ elementos indexados";
+"Not connected. Connect to the server in Finder, then rescan." = "No conectada. Conéctate al servidor en Finder y vuelve a indexar.";
+"Couldn't finish indexing: %@" = "No se pudo terminar de indexar: %@";
+
+/* Search panel */
+"Search files on the server" = "Buscar archivos en el servidor";
+"Clear" = "Borrar";
+"Rescan all folders now" = "Volver a indexar todas las carpetas ahora";
+"Settings" = "Ajustes";
+"Choose what to search" = "Elige dónde buscar";
+"Pick the server folders ServerFinder should index. You only need to do this once." = "Elige las carpetas del servidor que ServerFinder debe indexar. Solo tienes que hacerlo una vez.";
+"Choose Folders…" = "Elegir carpetas…";
+"Type part of a file name" = "Escribe parte del nombre de un archivo";
+"For example “invoice” or “2024”. Press Return to open the selected file." = "Por ejemplo “factura” o “2024”. Pulsa Retorno para abrir el archivo seleccionado.";
+"No matches for “%@”" = "Sin resultados para “%@”";
+"Try fewer letters or a different part of the name." = "Prueba con menos letras o con otra parte del nombre.";
+"Still indexing — more results may appear in a moment." = "Todavía indexando: pueden aparecer más resultados en un momento.";
+"“%@” is no longer on the server. Rescan to update the results." = "“%@” ya no está en el servidor. Vuelve a indexar para actualizar los resultados.";
+"“%@” isn't connected. Connect to the server in Finder, then try again." = "“%@” no está conectada. Conéctate al servidor en Finder y vuelve a intentarlo.";
+
+/* Settings */
+"ServerFinder Settings" = "Ajustes de ServerFinder";
+"Folders to search" = "Carpetas donde buscar";
+"ServerFinder keeps a list of the file names in these folders on your Mac, so you can find any file instantly." = "ServerFinder guarda en tu Mac una lista de los nombres de archivo de estas carpetas, para que encuentres cualquier archivo al instante.";
+"Add Folder…" = "Añadir carpeta…";
+"Remove" = "Quitar";
+"No folders yet. Add a connected server folder below." = "Aún no hay carpetas. Añade abajo una carpeta conectada del servidor.";
+"Connected server folders" = "Carpetas del servidor conectadas";
+"These shared folders are connected right now. Add the ones you want to search." = "Estas carpetas compartidas están conectadas ahora. Añade las que quieras buscar.";
+"Add All" = "Añadir todas";
+"Add" = "Añadir";
+"Choose the server folders you want to search." = "Elige las carpetas del servidor donde quieres buscar.";
+"“%@” is already searched as part of “%@”." = "“%1$@” ya se busca como parte de “%2$@”.";
+"ServerFinder only reads file names. It never changes, moves or deletes anything on the server." = "ServerFinder solo lee nombres de archivo. Nunca cambia, mueve ni elimina nada en el servidor.";
+"Indexing… %@ found" = "Indexando… %@ encontrados";
+"Waiting to index…" = "En espera para indexar…";
+"%@ items" = "%@ elementos";
+"Updated %@" = "Actualizado %@";
+"Not indexed yet" = "Aún sin indexar";
+"Not connected" = "No conectada";
