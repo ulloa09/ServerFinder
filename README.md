@@ -16,6 +16,13 @@ See [docs/PRD.md](docs/PRD.md) for the full plan.
 2. Open ServerFinder. The first time, Settings opens: click **Add** next to the connected
    server folders you want to search (or **Add Folder…** to pick a subfolder).
 3. Click the magnifying glass in the menu bar and type part of a file name.
+   - Accents and capitals don't matter: `cotizacion` finds `Cotización.xlsx`.
+   - Type several words to narrow down: `acme 2024 plano`. Words can also be folder names
+     anywhere in the path, including the shared folder itself (`1a examen`).
+   - Limit to file types with `.pdf` or `ext:pdf` (several: `ext:pdf,docx`). Folders show up
+     as results too; opening one opens it in Finder.
+   - Exact names come first, then names containing every word, then files found through
+     their folders; newer files first within each group.
    - **↑ / ↓** to pick a result, **Return** to open it, double-click works too.
    - **Esc** clears the text; press it again to close.
    - Right-click the menu bar icon for **Rescan Now**, **Settings…** and **Quit**.

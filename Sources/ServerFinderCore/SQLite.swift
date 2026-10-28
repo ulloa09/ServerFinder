@@ -48,6 +48,13 @@ final class Connection {
         try Statement(connection: self, sql: sql)
     }
 
+    var userVersion: Int {
+        get throws {
+            let statement = try prepare("PRAGMA user_version")
+            return try statement.step() ? Int(statement.int(0)) : 0
+        }
+    }
+
     var errorMessage: String {
         String(cString: sqlite3_errmsg(handle))
     }

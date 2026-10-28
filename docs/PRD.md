@@ -45,6 +45,9 @@ It only searches **names and paths**, not file contents. No server-side software
 29. As a user, I want indexing to skip folders I don't have permission to read without failing the whole scan, so that one restricted folder doesn't break everything.
 30. As a user, I want the app to never modify, move or delete anything on the server, so that it's safe to run on shared company data.
 31. As a user, I want the app to be lightweight (small memory, no CPU when idle), so that it doesn't drain my laptop battery.
+32. As a user, I want to choose in Settings which app opens each file type (e.g. `.pdf` → Adobe Acrobat, `.docx` → Microsoft Word), so that files from the server open in the app I work with.
+33. As a user, I want the apps offered for a file type to be the ones on my Mac that can open it, so that I don't have to hunt through the Applications folder.
+34. As a user, I want file types without a rule, and rules whose app was uninstalled, to open with the Mac's default app, so that opening a file never fails because of a setting.
 
 ## Implementation Decisions
 
@@ -64,12 +67,14 @@ It only searches **names and paths**, not file contents. No server-side software
 3. **QueryParser** — turns the typed string into a `Query { terms[], extensions[] }`: splits words, folds case and accents, recognizes `ext:pdf` / `.pdf`. Pure function.
 4. **ShareMonitor** — watches `NSWorkspace` mount/unmount notifications, knows which configured shares are currently online, and asks the **ScanScheduler** to start a scan on mount and every N hours while mounted. Guarantees at most one scan per share at a time and cancels a scan when its share unmounts.
 5. **Settings** — list of indexed share roots (stored as the share's SMB URL `smb://server/share` + subpath, so it survives being mounted at a different `/Volumes` name), exclusions, rescan interval, hotkey.
-6. **UI** — search panel (text field + results list, keyboard navigation, open / reveal / copy path / drag), menu bar menu (status, last indexed, Rescan now, Settings, Quit), settings window.
+6. **OpenWithRules** — maps file extensions (lowercased, without the dot) to an app's bundle identifier and answers "which app opens this file name?", or nothing for "use the Mac's default". Pure and stored in the app's preferences; only affects files opened from ServerFinder, never Finder's own defaults.
+7. **UI** — search panel (text field + results list, keyboard navigation, open / reveal / copy path / drag), menu bar menu (status, last indexed, Rescan now, Settings, Quit), settings window.
 
 **Key behaviours**
 - Changes made by *other* people on the server are not reported to the Mac (FSEvents doesn't work for remote changes on SMB), so freshness comes from **periodic full rescans**, not live watching. v1 keeps it simple: full rescan per share on mount + every N hours (default 2h).
 - Results ranking: exact filename match > filename contains all terms > path-only match; ties broken by most recently modified. Limit to ~200 results; search runs on every keystroke (debounced ~50 ms).
 - Offline results: if a result's share is not mounted, show it greyed; on open, attempt to mount via its `smb://` URL (`NSWorkspace.open`) and then open the file.
+- Opening a file uses the matching **Open With** rule (`NSWorkspace.open(_:withApplicationAt:configuration:)`); with no rule, or when the rule's app is no longer installed, it falls back to the Mac's default app.
 - The app only ever reads from the server.
 
 ## Testing Decisions
@@ -77,6 +82,7 @@ It only searches **names and paths**, not file contents. No server-side software
 - Good tests check external behaviour through each module's public interface (what a scan emits, what a search returns), never internal SQL or private helpers.
 - **QueryParser**: table-driven unit tests — accents, case, multiple terms, `ext:`/`.ext` forms, empty/whitespace input.
 - **IndexStore**: tests against a temporary on-disk SQLite file — substring matches, accent-insensitive matches, multi-term AND, extension filter, ranking order, generation swap (old rows removed only after commit; interrupted generation leaves old index searchable), multiple shares isolated from each other.
+- **OpenWithRules**: extension matching is case-insensitive and ignores the dot, files without an extension and folders have no rule, replacing and removing rules, and rules survive saving and loading.
 - **ShareScanner**: tests against a temporary local directory tree built in the test — all files/folders found, exclusions respected, unreadable folder skipped with a warning, cancellation stops emission. (SMB itself is not simulated; a manual check against the real share covers that.)
 - ShareMonitor and UI: manual testing only for v1.
 - No prior art in this repo (new project); use Swift Testing.

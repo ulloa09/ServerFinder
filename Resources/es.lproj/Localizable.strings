@@ -32,7 +32,7 @@
 "Pick the server folders ServerFinder should index. You only need to do this once." = "Elige las carpetas del servidor que ServerFinder debe indexar. Solo tienes que hacerlo una vez.";
 "Choose Folders…" = "Elegir carpetas…";
 "Type part of a file name" = "Escribe parte del nombre de un archivo";
-"For example “invoice” or “2024”. Press Return to open the selected file." = "Por ejemplo “factura” o “2024”. Pulsa Retorno para abrir el archivo seleccionado.";
+"For example “invoice”, “acme 2024” or “plan .pdf” to see only PDFs. Press Return to open the selected file." = "Por ejemplo “factura”, “acme 2024” o “plan .pdf” para ver solo PDF. Pulsa Retorno para abrir el archivo seleccionado.";
 "No matches for “%@”" = "Sin resultados para “%@”";
 "Try fewer letters or a different part of the name." = "Prueba con menos letras o con otra parte del nombre.";
 "Still indexing — more results may appear in a moment." = "Todavía indexando: pueden aparecer más resultados en un momento.";

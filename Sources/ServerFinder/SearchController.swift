@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import ServerFinderCore
 
 /// State of the search panel: the typed text, results and the selected row.
 @MainActor @Observable
@@ -25,6 +26,8 @@ final class SearchController {
     }
 
     var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
+    /// The words being searched for, as matched (lowercase, no accents). Used to highlight names.
+    private(set) var searchTerms: [String] = []
     var selectedHit: SearchHit? { results.indices.contains(selectedIndex) ? results[selectedIndex] : nil }
 
     func panelWillShow() {
@@ -66,9 +69,10 @@ final class SearchController {
     private func scheduleSearch(debounce: Bool = true) {
         searchTask?.cancel()
         notice = nil
-        let text = trimmedQuery
-        guard !text.isEmpty else {
+        let parsed = Query.parse(query)
+        guard !parsed.isEmpty else {
             results = []
+            searchTerms = []
             selectedIndex = 0
             hasResults = false
             return
@@ -77,9 +81,10 @@ final class SearchController {
         searchTask = Task {
             if debounce { try? await Task.sleep(for: .milliseconds(60)) }
             guard !Task.isCancelled else { return }
-            let hits = await model.search(text)
+            let hits = await model.search(parsed)
             guard !Task.isCancelled else { return }
             results = hits
+            searchTerms = parsed.terms
             // Keep the same row selected when results refresh underneath the user.
             selectedIndex = debounce ? 0 : (hits.firstIndex { $0.id == previousSelection } ?? 0)
             hasResults = true

@@ -20,11 +20,17 @@ public final class IndexStore: @unchecked Sendable {
     private let reader: Connection
     private let readerLock = NSLock()
 
+    private static let schemaVersion = 2
+
+    /// `search_path` holds "<folder name>/<relative path>" lowercased and without accents, so any
+    /// word of the path can be found. `name_norm` is the normalized name, used for ranking.
     private static let schema = """
         PRAGMA journal_mode = WAL;
         PRAGMA synchronous = NORMAL;
         CREATE VIRTUAL TABLE IF NOT EXISTS entries USING fts5(
-            name,
+            search_path,
+            name_norm UNINDEXED,
+            name UNINDEXED,
             share UNINDEXED,
             relative_path UNINDEXED,
             is_dir UNINDEXED,
@@ -32,14 +38,20 @@ public final class IndexStore: @unchecked Sendable {
             modified UNINDEXED,
             tokenize = 'trigram'
         );
-        PRAGMA user_version = 1;
+        PRAGMA user_version = \(schemaVersion);
         """
 
     public init(url: URL) throws {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true
         )
-        try Connection(url: url).execute(Self.schema)
+        let setup = try Connection(url: url)
+        // The index is only a cache of the server's file names: when its layout changes,
+        // start over and let the next scan fill it again.
+        if try setup.userVersion != Self.schemaVersion {
+            try setup.execute("DROP TABLE IF EXISTS entries")
+        }
+        try setup.execute(Self.schema)
         self.url = url
         self.reader = try Connection(url: url)
     }
@@ -47,23 +59,66 @@ public final class IndexStore: @unchecked Sendable {
     /// Starts replacing everything stored for `share`. Nothing changes for searches
     /// until ``ShareReplacement/commit()`` — except on a share's very first index,
     /// where results are made searchable as they arrive.
-    public func beginReplacing(share: String) throws -> ShareReplacement {
-        try ShareReplacement(connection: Connection(url: url), share: share)
+    ///
+    /// `displayName` is the share's folder name; its words also find the items inside it.
+    public func beginReplacing(share: String, displayName: String) throws -> ShareReplacement {
+        try ShareReplacement(connection: Connection(url: url), share: share, displayName: displayName)
     }
 
-    /// Returns items whose name contains `text`, ignoring case. Most recently modified first.
-    public func search(_ text: String, limit: Int = 200) throws -> [SearchResult] {
-        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return [] }
+    /// Returns items whose path contains every term of `query` and, when the query names
+    /// file types, only files of those types.
+    ///
+    /// Best matches first: the exact file name, then names containing every term, then items
+    /// matched through their folders. Within each group, most recently modified first.
+    public func search(_ query: Query, limit: Int = 200) throws -> [SearchResult] {
+        guard !query.isEmpty else { return [] }
+
+        var parameters: [SQLValue] = []
+        func parameter(_ value: SQLValue) -> String {
+            parameters.append(value)
+            return "?\(parameters.count)"
+        }
+
+        // LIKE lets SQLite use the trigram index; instr() then checks each term exactly,
+        // since "_" and "%" are wildcards for LIKE.
+        var filters = query.terms.map { term in
+            "search_path LIKE \(parameter(.text("%\(term)%"))) AND instr(search_path, \(parameter(.text(term)))) > 0"
+        }
+        if !query.extensions.isEmpty {
+            // Compares the end of the name. (LIKE on an UNINDEXED column of an FTS5 table
+            // wrongly matches nothing, so it can't be used here.)
+            let anyExtension = query.extensions
+                .map { ext in
+                    let suffix = parameter(.text(".\(ext)"))
+                    return "substr(name_norm, -length(\(suffix))) = \(suffix)"
+                }
+                .joined(separator: " OR ")
+            filters.append("is_dir = 0 AND (\(anyExtension))")
+        }
+
+        let text = parameter(.text(query.text))
+        let exactName = query.text.isEmpty
+            ? "0"
+            : "name_norm = \(text) OR substr(name_norm, 1, length(\(text)) + 1) = \(text) || '.'"
+        let nameHasAllTerms = query.terms.isEmpty
+            ? "1"
+            : query.terms.map { "instr(name_norm, \(parameter(.text($0)))) > 0" }.joined(separator: " AND ")
 
         readerLock.lock()
         defer { readerLock.unlock() }
         let statement = try reader.prepare("""
-            SELECT share, relative_path, name, is_dir, size, modified
-            FROM entries WHERE name LIKE ?
-            ORDER BY modified DESC LIMIT ?
+            SELECT share, relative_path, name, is_dir, size, modified,
+                CASE
+                    WHEN \(exactName) THEN 0
+                    WHEN \(nameHasAllTerms) THEN 1
+                    ELSE 2
+                END AS rank
+            FROM entries
+            WHERE \(filters.joined(separator: " AND "))
+            ORDER BY rank, modified DESC, name_norm
+            LIMIT \(parameter(.int(Int64(limit))))
             """)
-        try statement.bind([.text("%\(text)%"), .int(Int64(limit))])
+        try statement.bind(parameters)
         var results: [SearchResult] = []
         while try statement.step() {
             results.append(SearchResult(
@@ -101,6 +156,7 @@ public final class IndexStore: @unchecked Sendable {
 public final class ShareReplacement {
     public let share: String
     public private(set) var insertedCount = 0
+    private let pathPrefix: String
 
     private let connection: Connection
     private let insertStatement: Statement
@@ -111,9 +167,10 @@ public final class ShareReplacement {
     private var isFinished = false
     private static let progressiveCommitSize = 5_000
 
-    init(connection: Connection, share: String) throws {
+    init(connection: Connection, share: String, displayName: String) throws {
         self.connection = connection
         self.share = share
+        self.pathPrefix = SearchText.normalize(displayName) + "/"
 
         let existing = try connection.prepare("SELECT 1 FROM entries WHERE share = ? LIMIT 1")
         try existing.bind([.text(share)])
@@ -124,8 +181,8 @@ public final class ShareReplacement {
         try delete.bind([.text(share)])
         _ = try delete.step()
         insertStatement = try connection.prepare("""
-            INSERT INTO entries (name, share, relative_path, is_dir, size, modified)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO entries (search_path, name_norm, name, share, relative_path, is_dir, size, modified)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """)
     }
 
@@ -138,6 +195,8 @@ public final class ShareReplacement {
     public func insert(_ records: [FileRecord]) throws -> Bool {
         for record in records {
             try insertStatement.bind([
+                .text(pathPrefix + SearchText.normalize(record.relativePath)),
+                .text(SearchText.normalize(record.name)),
                 .text(record.name),
                 .text(share),
                 .text(record.relativePath),

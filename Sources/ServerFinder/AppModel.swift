@@ -126,7 +126,7 @@ final class AppModel {
             scanTask = Task.detached(priority: .utility) { [weak self] in
                 let result: Result<Int, any Error>
                 do {
-                    let replacement = try store.beginReplacing(share: folder.shareKey)
+                    let replacement = try store.beginReplacing(share: folder.shareKey, displayName: folder.name)
                     for try await batch in scanner.scan(root: folder.url) {
                         let becameSearchable = try replacement.insert(batch)
                         let found = replacement.insertedCount
@@ -187,10 +187,10 @@ final class AppModel {
 
     // MARK: Searching
 
-    func search(_ text: String) async -> [SearchHit] {
+    func search(_ query: Query) async -> [SearchHit] {
         guard let store else { return [] }
         let results = await Task.detached(priority: .userInitiated) {
-            (try? store.search(text)) ?? []
+            (try? store.search(query)) ?? []
         }.value
         let foldersByKey = Dictionary(uniqueKeysWithValues: folders.map { ($0.shareKey, $0) })
         return results.compactMap { result in

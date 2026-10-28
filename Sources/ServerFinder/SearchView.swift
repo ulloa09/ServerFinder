@@ -68,7 +68,7 @@ struct SearchView: View {
             EmptyStateView(
                 systemImage: "text.magnifyingglass",
                 title: "Type part of a file name",
-                message: "For example “invoice” or “2024”. Press Return to open the selected file."
+                message: "For example “invoice”, “acme 2024” or “plan .pdf” to see only PDFs. Press Return to open the selected file."
             )
         } else if controller.results.isEmpty && controller.hasResults {
             EmptyStateView(
@@ -125,7 +125,7 @@ private struct ResultsList: View {
                     ForEach(Array(controller.results.enumerated()), id: \.element.id) { index, hit in
                         ResultRow(
                             hit: hit,
-                            query: controller.trimmedQuery,
+                            terms: controller.searchTerms,
                             isSelected: index == controller.selectedIndex
                         )
                         .id(hit.id)
@@ -149,7 +149,7 @@ private struct ResultsList: View {
 
 private struct ResultRow: View {
     let hit: SearchHit
-    let query: String
+    let terms: [String]
     let isSelected: Bool
 
     var body: some View {
@@ -179,11 +179,13 @@ private struct ResultRow: View {
         .help(hit.url.path)
     }
 
-    /// The name with the typed text in bold.
+    /// The name with the searched words in bold.
     private var highlightedName: AttributedString {
         var name = AttributedString(hit.name)
-        if let range = name.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) {
-            name[range].font = .body.bold()
+        for term in terms {
+            if let range = name.range(of: term, options: [.caseInsensitive, .diacriticInsensitive]) {
+                name[range].font = .body.bold()
+            }
         }
         return name
     }
