@@ -24,7 +24,7 @@ import Testing
     private func scanAll(batchSize: Int = 500) async throws -> [FileRecord] {
         var records: [FileRecord] = []
         for try await batch in ShareScanner(batchSize: batchSize).scan(root: root) {
-            records += batch
+            records += batch.records
         }
         return records
     }
@@ -66,7 +66,7 @@ import Testing
 
         var batchSizes: [Int] = []
         for try await batch in ShareScanner(batchSize: 3).scan(root: root) {
-            batchSizes.append(batch.count)
+            batchSizes.append(batch.records.count)
         }
         #expect(batchSizes == [3, 3, 1])
     }
@@ -93,5 +93,58 @@ import Testing
         _ = try await scanAll()
 
         #expect(try FileManager.default.subpathsOfDirectory(atPath: root.path).sorted() == before)
+    }
+
+    @Test func skipsAndReportsFoldersItCannotRead() async throws {
+        try makeFile("Public/Report.pdf")
+        try makeFile("Private/Salaries.xlsx")
+        let privateFolder = root.appendingPathComponent("Private")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: privateFolder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: privateFolder.path) }
+
+        var records: [FileRecord] = []
+        var unreadable: [String] = []
+        for try await batch in ShareScanner().scan(root: root) {
+            records += batch.records
+            unreadable += batch.unreadableFolders
+        }
+
+        #expect(Set(records.map(\.relativePath)) == ["Public", "Public/Report.pdf", "Private"])
+        #expect(unreadable == ["Private"])
+    }
+
+    @Test func shareDisappearingMidScanFailsInsteadOfReturningAPartialList() throws {
+        for index in 0..<20 { try makeFile("Folder \(index)/File.txt") }
+
+        var removed = false
+        #expect(throws: ScanError.connectionLost(path: root.standardizedFileURL.path)) {
+            try ShareScanner.walk(root: root, batchSize: 2) { _ in
+                guard !removed else { return }
+                removed = true
+                try? FileManager.default.removeItem(at: root)
+            }
+        }
+    }
+
+    @Test func cancellingStopsTheWalk() async throws {
+        for index in 0..<200 { try makeFile("File \(index).txt") }
+
+        let root = root
+        let task = Task.detached { () -> (records: Int, error: (any Error)?) in
+            var count = 0
+            do {
+                try ShareScanner.walk(root: root, batchSize: 10) { batch in
+                    count += batch.records.count
+                    if count >= 20 { withUnsafeCurrentTask { $0?.cancel() } }
+                }
+                return (count, nil)
+            } catch {
+                return (count, error)
+            }
+        }
+        let outcome = await task.value
+
+        #expect(outcome.error is CancellationError)
+        #expect(outcome.records < 200)
     }
 }

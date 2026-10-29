@@ -82,3 +82,8 @@
 "macOS needs your approval in Login Items." = "macOS necesita tu aprobación en Ítems de inicio.";
 "Open Login Items Settings" = "Abrir ajustes de Ítems de inicio";
 "Couldn't change this setting: %@" = "No se pudo cambiar este ajuste: %@";
+
+/* Safe rescans */
+"The connection to the server was lost while indexing. The previous list was kept." = "Se perdió la conexión con el servidor mientras se indexaba. Se conservó la lista anterior.";
+"%lld folders couldn't be read" = "%lld carpetas no se pudieron leer";
+"You don't have permission to open these folders, so their files aren't searchable:" = "No tienes permiso para abrir estas carpetas, así que sus archivos no aparecen en la búsqueda:";

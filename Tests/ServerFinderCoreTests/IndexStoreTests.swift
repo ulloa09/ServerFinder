@@ -161,6 +161,19 @@ import Testing
         #expect(try search("partial").isEmpty)
     }
 
+    @Test func rescanResultsAppearOnlyWhenTheScanFinishes() throws {
+        try index([record("Original.pdf")])
+
+        let replacement = try store.beginReplacing(share: "A", displayName: "Share")
+        try replacement.insert([record("Nuevo.pdf")])
+        #expect(try search("nuevo").isEmpty)
+        #expect(try search("original").count == 1)
+
+        try replacement.commit()
+        #expect(try search("nuevo").count == 1)
+        #expect(try search("original").isEmpty)
+    }
+
     @Test func sharesAreKeptSeparate() throws {
         try index([record("Shared.pdf")], share: "A")
         try index([record("Other.pdf")], share: "B")

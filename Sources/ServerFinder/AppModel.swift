@@ -2,6 +2,11 @@ import Foundation
 import Observation
 import ServerFinderCore
 
+struct ScanOutcome {
+    var itemCount: Int
+    var unreadableFolders: [String]
+}
+
 struct ScanProgress: Equatable {
     var folderID: UUID
     var folderName: String
@@ -35,6 +40,8 @@ final class AppModel {
     private(set) var scanErrors: [UUID: String] = [:]
     private(set) var currentScan: ScanProgress?
     private(set) var queuedScans: [UUID] = []
+    /// Folders the last scan couldn't read (no permission), relative to each indexed folder.
+    private(set) var unreadableFolders: [UUID: [String]] = [:]
     /// Increases whenever newly indexed items become searchable, so open searches can refresh.
     private(set) var indexVersion = 0
 
@@ -95,6 +102,7 @@ final class AppModel {
         queuedScans.removeAll { $0 == folder.id }
         itemCounts[folder.id] = nil
         scanErrors[folder.id] = nil
+        unreadableFolders[folder.id] = nil
         if currentScan?.folderID == folder.id { scanTask?.cancel() }
         guard let store else { return }
         Task.detached(priority: .utility) {
@@ -124,17 +132,19 @@ final class AppModel {
             scanErrors[folder.id] = nil
             let scanner = scanner
             scanTask = Task.detached(priority: .utility) { [weak self] in
-                let result: Result<Int, any Error>
+                let result: Result<ScanOutcome, any Error>
                 do {
                     let replacement = try store.beginReplacing(share: folder.shareKey, displayName: folder.name)
+                    var unreadable: [String] = []
                     for try await batch in scanner.scan(root: folder.url) {
-                        let becameSearchable = try replacement.insert(batch)
+                        let becameSearchable = try replacement.insert(batch.records)
+                        unreadable += batch.unreadableFolders
                         let found = replacement.insertedCount
                         await self?.scanMadeProgress(found: found, becameSearchable: becameSearchable)
                     }
                     try Task.checkCancellation()
                     try replacement.commit()
-                    result = .success(replacement.insertedCount)
+                    result = .success(ScanOutcome(itemCount: replacement.insertedCount, unreadableFolders: unreadable))
                 } catch {
                     result = .failure(error)
                 }
@@ -149,12 +159,13 @@ final class AppModel {
         if becameSearchable { indexVersion += 1 }
     }
 
-    private func scanFinished(_ folder: IndexedFolder, result: Result<Int, any Error>) {
+    private func scanFinished(_ folder: IndexedFolder, result: Result<ScanOutcome, any Error>) {
         scanTask = nil
         currentScan = nil
         switch result {
-        case .success(let count):
-            itemCounts[folder.id] = count
+        case .success(let outcome):
+            itemCounts[folder.id] = outcome.itemCount
+            unreadableFolders[folder.id] = outcome.unreadableFolders.isEmpty ? nil : outcome.unreadableFolders
             if let index = folders.firstIndex(where: { $0.id == folder.id }) {
                 folders[index].lastIndexedAt = .now
             }
@@ -162,6 +173,8 @@ final class AppModel {
             break
         case .failure(ScanError.rootUnavailable):
             scanErrors[folder.id] = String(localized: "Not connected. Connect to the server in Finder, then rescan.")
+        case .failure(ScanError.connectionLost):
+            scanErrors[folder.id] = String(localized: "The connection to the server was lost while indexing. The previous list was kept.")
         case .failure(let error):
             scanErrors[folder.id] = String(localized: "Couldn't finish indexing: \(error.localizedDescription)")
         }

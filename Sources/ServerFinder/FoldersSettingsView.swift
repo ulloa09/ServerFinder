@@ -206,6 +206,14 @@ private struct FolderRow: View {
         .padding(.vertical, 3)
     }
 
+    /// Lists the skipped folders when hovering the warning.
+    private func unreadableHelp(_ paths: [String]) -> String {
+        let shown = paths.prefix(15).map { "• \($0)" }
+        let more = paths.count > 15 ? ["…"] : []
+        let intro = String(localized: "You don't have permission to open these folders, so their files aren't searchable:")
+        return ([intro] + shown + more).joined(separator: "\n")
+    }
+
     @ViewBuilder
     private var status: some View {
         if let scan = model.currentScan, scan.folderID == folder.id {
@@ -225,6 +233,11 @@ private struct FolderRow: View {
                 Text("\((model.itemCounts[folder.id] ?? 0).formatted()) items")
                 Text("Updated \(lastIndexed.formatted(.relative(presentation: .named)))")
                     .foregroundStyle(.secondary)
+                if let unreadable = model.unreadableFolders[folder.id] {
+                    Label("\(unreadable.count) folders couldn't be read", systemImage: "lock.fill")
+                        .foregroundStyle(.orange)
+                        .help(unreadableHelp(unreadable))
+                }
             }
         } else {
             Text("Not indexed yet")
