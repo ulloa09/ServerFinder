@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 struct SearchView: View {
     let controller: SearchController
+    let general: GeneralSettings
     let onOpenSettings: () -> Void
     let onDidOpen: () -> Void
 
@@ -65,11 +66,18 @@ struct SearchView: View {
                 action: onOpenSettings
             )
         } else if controller.trimmedQuery.isEmpty {
-            EmptyStateView(
-                systemImage: "text.magnifyingglass",
-                title: "Type part of a file name",
-                message: "For example “invoice”, “acme 2024” or “plan .pdf” to see only PDFs. Press Return to open the selected file."
-            )
+            VStack(spacing: 0) {
+                EmptyStateView(
+                    systemImage: "text.magnifyingglass",
+                    title: "Type part of a file name",
+                    message: "For example “invoice”, “acme 2024” or “plan .pdf” to see only PDFs. Press Return to open the selected file."
+                )
+                if let shortcut = general.searchShortcut {
+                    Text("Tip: press \(shortcut.displayString) in any app to open this search.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
         } else if controller.results.isEmpty && controller.hasResults {
             EmptyStateView(
                 systemImage: "questionmark.folder",
@@ -85,16 +93,29 @@ struct SearchView: View {
 
     private var footer: some View {
         HStack(spacing: 8) {
-            if model.currentScan != nil {
-                ProgressView()
-                    .controlSize(.small)
+            if let confirmation = controller.confirmation {
+                Label(confirmation, systemImage: "checkmark.circle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.green)
+            } else {
+                if model.currentScan != nil {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                Text(model.statusText)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
-            Text(model.statusText)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
             Spacer()
+            if controller.selectedHit != nil {
+                Text("↩ Open   ⌘↩ Show in Finder   ⌘C Copy Path")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .layoutPriority(-1)
+            }
             Button {
                 model.rescanAll()
             } label: {
@@ -135,6 +156,18 @@ private struct ResultsList: View {
                             if controller.open(hit) { onDidOpen() }
                         }
                         .simultaneousGesture(TapGesture().onEnded { controller.selectedIndex = index })
+                        // Drag a result into Mail, Finder or any app that accepts files.
+                        .onDrag { NSItemProvider(contentsOf: hit.url) ?? NSItemProvider() }
+                        .contextMenu {
+                            Button("Open") {
+                                if controller.open(hit) { onDidOpen() }
+                            }
+                            Button("Show in Finder") {
+                                if controller.revealInFinder(hit) { onDidOpen() }
+                            }
+                            Divider()
+                            Button("Copy Path") { controller.copyPath(hit) }
+                        }
                     }
                 }
                 .padding(6)
@@ -167,7 +200,19 @@ private struct ResultRow: View {
                     .lineLimit(1)
                     .truncationMode(.head)
             }
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)
+            VStack(alignment: .trailing, spacing: 2) {
+                if let modified = hit.result.modifiedAt {
+                    Text(ResultFormat.date(modified))
+                }
+                if !hit.isDirectory {
+                    Text(hit.result.size.formatted(.byteCount(style: .file)))
+                }
+            }
+            .font(.caption)
+            .monospacedDigit()
+            .foregroundStyle(isSelected ? AnyShapeStyle(.white.opacity(0.85)) : AnyShapeStyle(.secondary))
+            .fixedSize()
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
@@ -231,6 +276,19 @@ struct EmptyStateView: View {
             }
         }
         .padding()
+    }
+}
+
+enum ResultFormat {
+    /// Today: the time. This year: day and month. Older: with the year.
+    static func date(_ date: Date) -> String {
+        if Calendar.current.isDateInToday(date) {
+            return date.formatted(date: .omitted, time: .shortened)
+        }
+        if Calendar.current.isDate(date, equalTo: .now, toGranularity: .year) {
+            return date.formatted(.dateTime.day().month(.abbreviated))
+        }
+        return date.formatted(.dateTime.day().month(.abbreviated).year())
     }
 }
 

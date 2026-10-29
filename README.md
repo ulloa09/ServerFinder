@@ -15,7 +15,9 @@ See [docs/PRD.md](docs/PRD.md) for the full plan.
 1. Connect to the server in Finder as usual (**Go → Connect to Server…**).
 2. Open ServerFinder. The first time, Settings opens: click **Add** next to the connected
    server folders you want to search (or **Add Folder…** to pick a subfolder).
-3. Click the magnifying glass in the menu bar and type part of a file name.
+3. Press **⌥ Space** in any app (or click the magnifying glass in the menu bar) and type
+   part of a file name. You can change the shortcut, and turn on **Open ServerFinder when
+   you log in**, in **Settings → General**.
    - Accents and capitals don't matter: `cotizacion` finds `Cotización.xlsx`.
    - Type several words to narrow down: `acme 2024 plano`. Words can also be folder names
      anywhere in the path, including the shared folder itself (`1a examen`).
@@ -23,7 +25,10 @@ See [docs/PRD.md](docs/PRD.md) for the full plan.
      as results too; opening one opens it in Finder.
    - Exact names come first, then names containing every word, then files found through
      their folders; newer files first within each group.
+   - Each result shows where it lives, when it was last modified and its size.
    - **↑ / ↓** to pick a result, **Return** to open it, double-click works too.
+   - **⌘Return** shows it in Finder, **⌘C** copies its full path, and you can drag a result
+     into Mail or any other app. Right-click a result for the same options.
    - **Esc** clears the text; press it again to close.
    - Right-click the menu bar icon for **Rescan Now**, **Settings…** and **Quit**.
 

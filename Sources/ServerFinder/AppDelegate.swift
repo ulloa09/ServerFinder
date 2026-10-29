@@ -5,6 +5,7 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let model = AppModel()
     private lazy var searchController = SearchController(model: model)
+    private let general = GeneralSettings()
 
     private var statusItem: NSStatusItem!
     private var panel: SearchPanel!
@@ -19,10 +20,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         setUpStatusItem()
         panel = SearchPanel(rootView: SearchView(
             controller: searchController,
+            general: general,
             onOpenSettings: { [weak self] in self?.showSettings() },
             onDidOpen: { [weak self] in self?.hidePanel() }
         ))
         panel.delegate = self
+        general.activateShortcut { [weak self] in self?.searchShortcutPressed() }
 
         if model.folders.isEmpty {
             showSettings()
@@ -83,16 +86,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     // MARK: Search panel
 
+    private func searchShortcutPressed() {
+        if panel.isVisible {
+            hidePanel()
+        } else {
+            showPanel(belowStatusItem: false)
+        }
+    }
+
     private func showPanel(belowStatusItem: Bool) {
+        let size = panel.frame.size
         if belowStatusItem, let buttonWindow = statusItem.button?.window,
            let screen = buttonWindow.screen ?? NSScreen.main {
             let icon = buttonWindow.frame
             let visible = screen.visibleFrame
-            let size = panel.frame.size
             let x = min(max(icon.midX - size.width / 2, visible.minX + 8), visible.maxX - size.width - 8)
             panel.setFrameOrigin(NSPoint(x: x, y: icon.minY - size.height - 6))
-        } else {
-            panel.center()
+        } else if let screen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main {
+            // Like Spotlight: centered, in the upper part of the screen the user is working on.
+            let visible = screen.visibleFrame
+            panel.setFrameOrigin(NSPoint(
+                x: visible.midX - size.width / 2,
+                y: visible.maxY - visible.height * 0.18 - size.height
+            ))
         }
         searchController.panelWillShow()
         panel.makeKeyAndOrderFront(nil)
@@ -116,26 +132,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
-            guard modifiers.isEmpty else { return event }
+            let shortcut: PanelShortcut.Modifier
+            switch modifiers {
+            case []: shortcut = .none
+            case .command: shortcut = .command
+            default: return event
+            }
             let windowNumber = event.windowNumber
             let keyCode = event.keyCode
             let handled = MainActor.assumeIsolated {
                 guard let self, windowNumber == self.panel.windowNumber else { return false }
-                return self.handlePanelKey(keyCode)
+                return self.handlePanelKey(keyCode, modifier: shortcut)
             }
             return handled ? nil : event
         }
     }
 
-    private func handlePanelKey(_ keyCode: UInt16) -> Bool {
-        switch keyCode {
-        case 125: // Down arrow
+    private func handlePanelKey(_ keyCode: UInt16, modifier: PanelShortcut.Modifier) -> Bool {
+        switch (keyCode, modifier) {
+        case (125, .none): // Down arrow
             searchController.moveSelection(by: 1)
-        case 126: // Up arrow
+        case (126, .none): // Up arrow
             searchController.moveSelection(by: -1)
-        case 36, 76: // Return, Enter
+        case (36, .none), (76, .none): // Return, Enter
             if searchController.openSelected() { hidePanel() }
-        case 53: // Esc: clear the text first, then close
+        case (36, .command), (76, .command): // ⌘Return: show in Finder
+            guard let hit = searchController.selectedHit else { return true }
+            if searchController.revealInFinder(hit) { hidePanel() }
+        case (8, .command): // ⌘C: copy the result's path, unless text is selected in the search field
+            guard let hit = searchController.selectedHit, !searchFieldHasSelectedText else { return false }
+            searchController.copyPath(hit)
+        case (53, .none): // Esc: clear the text first, then close
             if searchController.query.isEmpty {
                 hidePanel()
             } else {
@@ -147,12 +174,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return true
     }
 
+    private var searchFieldHasSelectedText: Bool {
+        guard let editor = panel.firstResponder as? NSTextView else { return false }
+        return editor.selectedRange().length > 0
+    }
+
     // MARK: Settings
 
     private func showSettings() {
         hidePanel()
         if settingsWindow == nil {
-            let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(model: model)))
+            let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(model: model, general: general)))
             window.title = String(localized: "ServerFinder Settings")
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             window.isReleasedWhenClosed = false
@@ -162,4 +194,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.activate()
         settingsWindow?.makeKeyAndOrderFront(nil)
     }
+}
+
+enum PanelShortcut {
+    enum Modifier { case none, command }
 }

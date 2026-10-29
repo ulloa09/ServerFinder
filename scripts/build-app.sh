@@ -17,8 +17,12 @@ codesign --force --sign - "$app"
 echo "Built $app"
 
 if [[ "${1:-}" == "--install" ]]; then
-    osascript -e 'quit app "ServerFinder"' 2>/dev/null || true
+    # Stop the running copy, or it keeps running the old code after the files are replaced.
+    if pkill -x ServerFinder; then
+        while pgrep -x ServerFinder >/dev/null; do sleep 0.2; done
+    fi
     rm -rf /Applications/ServerFinder.app
     cp -R "$app" /Applications/
     echo "Installed /Applications/ServerFinder.app"
+    open /Applications/ServerFinder.app
 fi

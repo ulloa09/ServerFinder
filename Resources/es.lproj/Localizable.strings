@@ -59,3 +59,26 @@
 "Updated %@" = "Actualizado %@";
 "Not indexed yet" = "Aún sin indexar";
 "Not connected" = "No conectada";
+
+/* Result actions */
+"Open" = "Abrir";
+"Show in Finder" = "Mostrar en Finder";
+"Copy Path" = "Copiar ruta";
+"Path copied" = "Ruta copiada";
+"↩ Open   ⌘↩ Show in Finder   ⌘C Copy Path" = "↩ Abrir   ⌘↩ Mostrar en Finder   ⌘C Copiar ruta";
+
+/* General settings */
+"Folders" = "Carpetas";
+"General" = "General";
+"Search shortcut" = "Atajo para buscar";
+"Press it in any app to open the search. Click the shortcut to change it." = "Púlsalo en cualquier app para abrir la búsqueda. Haz clic en el atajo para cambiarlo.";
+"Press the new shortcut…" = "Pulsa el nuevo atajo…";
+"None — click to set" = "Ninguno: haz clic para elegir";
+"Turn off the shortcut" = "Desactivar el atajo";
+"Space" = "Espacio";
+"Another app is already using this shortcut. Choose a different one." = "Otra app ya usa este atajo. Elige uno diferente.";
+"Tip: press %@ in any app to open this search." = "Consejo: pulsa %@ en cualquier app para abrir esta búsqueda.";
+"Open ServerFinder when you log in" = "Abrir ServerFinder al iniciar sesión";
+"macOS needs your approval in Login Items." = "macOS necesita tu aprobación en Ítems de inicio.";
+"Open Login Items Settings" = "Abrir ajustes de Ítems de inicio";
+"Couldn't change this setting: %@" = "No se pudo cambiar este ajuste: %@";

@@ -16,14 +16,21 @@ final class SearchPanel: NSPanel {
         for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             standardWindowButton(button)?.isHidden = true
         }
-        isMovableByWindowBackground = true
+        // Only the top edge moves the panel, so result rows can be dragged out as files.
+        isMovableByWindowBackground = false
         level = .floating
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
-        contentView = NSHostingView(rootView: rootView)
+        contentView = PanelHostingView(rootView: rootView)
         setContentSize(contentView?.fittingSize ?? NSSize(width: 640, height: 440))
     }
 
     override var canBecomeKey: Bool { true }
+}
+
+/// SwiftUI content that never acts as a window-drag handle, so dragging a result
+/// drags the file instead of moving the panel.
+private final class PanelHostingView<Content: View>: NSHostingView<Content> {
+    override var mouseDownCanMoveWindow: Bool { false }
 }

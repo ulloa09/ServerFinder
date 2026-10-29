@@ -16,6 +16,9 @@ final class SearchController {
     private(set) var hasResults = false
     /// A short message shown above the results, e.g. when a file couldn't be opened.
     var notice: String?
+    /// A brief success message, e.g. after copying a path. Clears itself.
+    private(set) var confirmation: String?
+    private var confirmationTask: Task<Void, Never>?
     /// Increases each time the panel is shown, so the view can focus the text field.
     private(set) var focusRequest = 0
 
@@ -54,16 +57,43 @@ final class SearchController {
     }
 
     func open(_ hit: SearchHit) -> Bool {
-        guard FileManager.default.fileExists(atPath: hit.url.path) else {
-            if FileManager.default.fileExists(atPath: hit.folder.path) {
-                notice = String(localized: "“\(hit.name)” is no longer on the server. Rescan to update the results.")
-            } else {
-                notice = String(localized: "“\(hit.folder.name)” isn't connected. Connect to the server in Finder, then try again.")
-            }
-            return false
-        }
+        guard isReachable(hit) else { return false }
         NSWorkspace.shared.open(hit.url)
         return true
+    }
+
+    /// Shows the item selected in a Finder window. Returns `true` when the panel can close.
+    func revealInFinder(_ hit: SearchHit) -> Bool {
+        guard isReachable(hit) else { return false }
+        NSWorkspace.shared.activateFileViewerSelecting([hit.url])
+        return true
+    }
+
+    func copyPath(_ hit: SearchHit) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(hit.url.path, forType: .string)
+        showConfirmation(String(localized: "Path copied"))
+    }
+
+    /// Checks the item is still there, and explains why not when it isn't.
+    private func isReachable(_ hit: SearchHit) -> Bool {
+        if FileManager.default.fileExists(atPath: hit.url.path) { return true }
+        if FileManager.default.fileExists(atPath: hit.folder.path) {
+            notice = String(localized: "“\(hit.name)” is no longer on the server. Rescan to update the results.")
+        } else {
+            notice = String(localized: "“\(hit.folder.name)” isn't connected. Connect to the server in Finder, then try again.")
+        }
+        return false
+    }
+
+    private func showConfirmation(_ message: String) {
+        confirmation = message
+        confirmationTask?.cancel()
+        confirmationTask = Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled else { return }
+            confirmation = nil
+        }
     }
 
     private func scheduleSearch(debounce: Bool = true) {
