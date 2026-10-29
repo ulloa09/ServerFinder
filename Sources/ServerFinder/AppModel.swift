@@ -92,7 +92,11 @@ final class AppModel {
             return .alreadyIncluded(in: existing)
         }
         // A new parent folder replaces subfolders that were added on their own.
-        let newFolder = IndexedFolder(id: UUID(), path: path, lastIndexedAt: nil)
+        let location = ServerVolumes.location(of: path)
+        let newFolder = IndexedFolder(
+            id: UUID(), path: path, lastIndexedAt: nil,
+            serverAddress: location?.address, pathInShare: location?.pathInShare
+        )
         for subfolder in folders where newFolder.contains(path: subfolder.path) {
             removeFolder(subfolder)
         }
@@ -128,8 +132,73 @@ final class AppModel {
 
     // MARK: Scanning
 
+    /// Hours between automatic rescans while a folder stays connected; 0 turns them off
+    /// (folders are then scanned only when they connect and when the app starts).
+    var rescanIntervalHours: Int = UserDefaults.standard.object(forKey: "rescanIntervalHours") as? Int ?? 2 {
+        didSet { UserDefaults.standard.set(rescanIntervalHours, forKey: "rescanIntervalHours") }
+    }
+
     func rescanAll() {
+        updateFolderLocations()
         for folder in folders { enqueueScan(of: folder.id) }
+    }
+
+    /// Scans connected folders that were never indexed or whose last scan is older than the interval.
+    func scanDueFolders() {
+        updateFolderLocations()
+        let interval = rescanIntervalHours > 0 ? TimeInterval(rescanIntervalHours) * 3_600 : nil
+        for folder in folders where folder.isConnected
+            && RescanSchedule.isDue(lastIndexedAt: folder.lastIndexedAt, interval: interval) {
+            enqueueScan(of: folder.id)
+        }
+    }
+
+    /// At launch: refresh every connected folder.
+    func scanConnectedFolders() {
+        updateFolderLocations()
+        for folder in folders where folder.isConnected { enqueueScan(of: folder.id) }
+    }
+
+    /// A server share was just mounted: scan the folders that live on it.
+    func volumeDidMount(at volume: URL) {
+        guard let address = ServerVolumes.address(ofVolume: volume) else { return }
+        updateFolderLocations()
+        for folder in folders where folder.serverAddress == address && folder.isConnected {
+            enqueueScan(of: folder.id)
+        }
+    }
+
+    /// A share is going away: stop scanning it, keeping the list from its last complete scan.
+    func volumeWillUnmount(at volume: URL) {
+        let volumePath = volume.standardizedFileURL.path
+        let leaving = folders.filter { IndexedFolder(id: $0.id, path: volumePath).contains(path: $0.path) }
+        for folder in leaving {
+            queuedScans.removeAll { $0 == folder.id }
+            if currentScan?.folderID == folder.id { scanTask?.cancel() }
+        }
+    }
+
+    /// Fills in which share each folder is on, and follows shares that macOS mounted under a
+    /// different name (e.g. `/Volumes/Projects-1` instead of `/Volumes/Projects`).
+    private func updateFolderLocations() {
+        var mounted: [(url: URL, address: ServerAddress)]?
+        for index in folders.indices {
+            var folder = folders[index]
+            if folder.isConnected {
+                guard folder.serverAddress == nil, let location = ServerVolumes.location(of: folder.path) else { continue }
+                folder.serverAddress = location.address
+                folder.pathInShare = location.pathInShare
+            } else {
+                guard let address = folder.serverAddress else { continue }
+                mounted = mounted ?? ServerVolumes.mounted()
+                guard let volume = mounted?.first(where: { $0.address == address }) else { continue }
+                let inShare = folder.pathInShare ?? ""
+                let newPath = inShare.isEmpty ? volume.url.path : volume.url.appendingPathComponent(inShare).path
+                guard newPath != folder.path, FileManager.default.fileExists(atPath: newPath) else { continue }
+                folder.path = newPath
+            }
+            folders[index] = folder
+        }
     }
 
     private func enqueueScan(of folderID: UUID) {

@@ -39,8 +39,11 @@ Some files are left out on purpose: Windows system folders (`$RECYCLE.BIN`,
 Edit the list in **Settings → Excluded**; `*` and `?` work as wildcards, and a pattern with
 `/` (e.g. `Backups/Old`) leaves out one folder inside a shared folder.
 
-The list refreshes every time the app starts, and whenever you click **Rescan Now**. On a
-folder's first scan, results appear while it's still indexing.
+The list refreshes on its own: when ServerFinder starts, whenever a server folder connects,
+and every 2 hours while it stays connected (change it in **Settings → General**). Disconnecting
+mid-scan keeps the previous list. **Rescan Now** refreshes everything right away. If macOS
+mounts a share under a different name (e.g. `Projects-1`), ServerFinder still recognizes it.
+On a folder's first scan, results appear while it's still indexing.
 
 The app follows your Mac's language (Spanish or English).
 

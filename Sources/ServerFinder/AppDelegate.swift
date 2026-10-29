@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private let model = AppModel()
     private lazy var searchController = SearchController(model: model)
     private let general = GeneralSettings()
+    private lazy var shareMonitor = ShareMonitor(model: model)
 
     private var statusItem: NSStatusItem!
     private var panel: SearchPanel!
@@ -33,10 +34,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         panel.delegate = self
         general.activateShortcut { [weak self] in self?.searchShortcutPressed() }
 
+        shareMonitor.start()
         if model.folders.isEmpty {
             showSettings()
         } else {
-            model.rescanAll()
+            model.scanConnectedFolders()
         }
     }
 

@@ -100,3 +100,13 @@
 
 /* Status menu */
 "%@ items · updated %@" = "%1$@ elementos · actualizado %2$@";
+
+/* Automatic scanning */
+"Rescan automatically" = "Volver a indexar automáticamente";
+"Every hour" = "Cada hora";
+"Every 2 hours" = "Cada 2 horas";
+"Every 4 hours" = "Cada 4 horas";
+"Every 8 hours" = "Cada 8 horas";
+"Once a day" = "Una vez al día";
+"Only when a folder connects" = "Solo cuando se conecta una carpeta";
+"Folders are also scanned when their server connects and when ServerFinder starts. Searching always works with the last list, even while scanning." = "Las carpetas también se indexan cuando su servidor se conecta y cuando ServerFinder se abre. La búsqueda siempre funciona con la última lista, incluso mientras se indexa.";

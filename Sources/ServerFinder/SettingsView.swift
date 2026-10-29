@@ -13,7 +13,7 @@ struct SettingsView: View {
             ExclusionsSettingsView(model: model)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .tabItem { Label("Excluded", systemImage: "eye.slash") }
-            GeneralSettingsView(settings: general)
+            GeneralSettingsView(model: model, settings: general)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .tabItem { Label("General", systemImage: "gearshape") }
         }
@@ -23,10 +23,12 @@ struct SettingsView: View {
 }
 
 private struct GeneralSettingsView: View {
+    let model: AppModel
     let settings: GeneralSettings
 
     var body: some View {
-        Form {
+        @Bindable var model = model
+        return Form {
             Section {
                 LabeledContent("Search shortcut") {
                     ShortcutRecorder(settings: settings)
@@ -37,6 +39,20 @@ private struct GeneralSettingsView: View {
                 }
             } footer: {
                 Text("Press it in any app to open the search. Click the shortcut to change it.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Picker("Rescan automatically", selection: $model.rescanIntervalHours) {
+                    Text("Every hour").tag(1)
+                    Text("Every 2 hours").tag(2)
+                    Text("Every 4 hours").tag(4)
+                    Text("Every 8 hours").tag(8)
+                    Text("Once a day").tag(24)
+                    Text("Only when a folder connects").tag(0)
+                }
+            } footer: {
+                Text("Folders are also scanned when their server connects and when ServerFinder starts. Searching always works with the last list, even while scanning.")
                     .foregroundStyle(.secondary)
             }
 
