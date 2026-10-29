@@ -30,7 +30,14 @@ See [docs/PRD.md](docs/PRD.md) for the full plan.
    - **⌘Return** shows it in Finder, **⌘C** copies its full path, and you can drag a result
      into Mail or any other app. Right-click a result for the same options.
    - **Esc** clears the text; press it again to close.
-   - Right-click the menu bar icon for **Rescan Now**, **Settings…** and **Quit**.
+   - Right-click the menu bar icon to see each folder's status (items, when it was last
+     indexed, problems), and for **Rescan Now**, **Settings…** and **Quit**. The icon
+     pulses while indexing.
+
+Some files are left out on purpose: Windows system folders (`$RECYCLE.BIN`,
+`System Volume Information`), `Thumbs.db`, `desktop.ini` and Office lock files (`~$…`).
+Edit the list in **Settings → Excluded**; `*` and `?` work as wildcards, and a pattern with
+`/` (e.g. `Backups/Old`) leaves out one folder inside a shared folder.
 
 The list refreshes every time the app starts, and whenever you click **Rescan Now**. On a
 folder's first scan, results appear while it's still indexing.

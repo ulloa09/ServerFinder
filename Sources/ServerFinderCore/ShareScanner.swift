@@ -32,13 +32,14 @@ public struct ShareScanner: Sendable {
         self.batchSize = batchSize
     }
 
-    /// Scans `root` on a background thread. Cancelling the consuming task stops the scan.
-    public func scan(root: URL) -> AsyncThrowingStream<ScanBatch, any Error> {
+    /// Scans `root` on a background thread, leaving out what `exclusions` matches.
+    /// Cancelling the consuming task stops the scan.
+    public func scan(root: URL, exclusions: ExclusionRules = .none) -> AsyncThrowingStream<ScanBatch, any Error> {
         let batchSize = batchSize
         return AsyncThrowingStream { continuation in
             let task = Task.detached(priority: .utility) {
                 do {
-                    try Self.walk(root: root, batchSize: batchSize) { continuation.yield($0) }
+                    try Self.walk(root: root, exclusions: exclusions, batchSize: batchSize) { continuation.yield($0) }
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -58,7 +59,9 @@ public struct ShareScanner: Sendable {
         EHOSTDOWN, EHOSTUNREACH,
     ]
 
-    static func walk(root: URL, batchSize: Int, emit: (ScanBatch) -> Void) throws {
+    static func walk(
+        root: URL, exclusions: ExclusionRules = .none, batchSize: Int, emit: (ScanBatch) -> Void
+    ) throws {
         let root = root.standardizedFileURL
         guard isFolder(root) else { throw ScanError.rootUnavailable(path: root.path) }
 
@@ -102,6 +105,10 @@ public struct ShareScanner: Sendable {
             let isDirectory = values.isDirectory ?? false
             ancestors.removeSubrange(min(enumerator.level - 1, ancestors.count)...)
             let relativePath = (ancestors + [name]).joined(separator: "/")
+            if exclusions.excludes(name: name, relativePath: relativePath) {
+                if isDirectory { enumerator.skipDescendants() }
+                continue
+            }
             if isDirectory { ancestors.append(name) }
             batch.append(FileRecord(
                 relativePath: relativePath,

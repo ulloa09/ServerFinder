@@ -40,6 +40,10 @@ final class AppModel {
     private(set) var scanErrors: [UUID: String] = [:]
     private(set) var currentScan: ScanProgress?
     private(set) var queuedScans: [UUID] = []
+    /// What scans leave out. Changes apply from the next scan.
+    private(set) var exclusions: ExclusionRules {
+        didSet { ExclusionStorage.save(exclusions) }
+    }
     /// Folders the last scan couldn't read (no permission), relative to each indexed folder.
     private(set) var unreadableFolders: [UUID: [String]] = [:]
     /// Increases whenever newly indexed items become searchable, so open searches can refresh.
@@ -53,6 +57,7 @@ final class AppModel {
 
     init() {
         folders = IndexedFolderStorage.load()
+        exclusions = ExclusionStorage.load()
         do {
             store = try IndexStore(url: Self.indexURL)
             storeError = nil
@@ -111,6 +116,16 @@ final class AppModel {
         indexVersion += 1
     }
 
+    // MARK: Exclusions
+
+    func setExclusionPatterns(_ patterns: [String]) {
+        exclusions = ExclusionRules(patterns: patterns)
+    }
+
+    func restoreDefaultExclusions() {
+        exclusions = .windowsServerDefaults
+    }
+
     // MARK: Scanning
 
     func rescanAll() {
@@ -131,12 +146,13 @@ final class AppModel {
             currentScan = ScanProgress(folderID: folder.id, folderName: folder.name, found: 0)
             scanErrors[folder.id] = nil
             let scanner = scanner
+            let exclusions = exclusions
             scanTask = Task.detached(priority: .utility) { [weak self] in
                 let result: Result<ScanOutcome, any Error>
                 do {
                     let replacement = try store.beginReplacing(share: folder.shareKey, displayName: folder.name)
                     var unreadable: [String] = []
-                    for try await batch in scanner.scan(root: folder.url) {
+                    for try await batch in scanner.scan(root: folder.url, exclusions: exclusions) {
                         let becameSearchable = try replacement.insert(batch.records)
                         unreadable += batch.unreadableFolders
                         let found = replacement.insertedCount
@@ -213,6 +229,21 @@ final class AppModel {
 
     // MARK: Status
 
+    /// One line about a folder: its progress, problem, or size and freshness.
+    func statusDetail(for folder: IndexedFolder) -> String {
+        if let scan = currentScan, scan.folderID == folder.id {
+            return String(localized: "Indexing… \(scan.found.formatted()) found")
+        }
+        if isQueued(folder) { return String(localized: "Waiting to index…") }
+        if let error = scanErrors[folder.id] { return error }
+        guard let lastIndexed = folder.lastIndexedAt else { return String(localized: "Not indexed yet") }
+        var detail = String(localized: "\((itemCounts[folder.id] ?? 0).formatted()) items · updated \(lastIndexed.formatted(.relative(presentation: .named)))")
+        if let unreadable = unreadableFolders[folder.id] {
+            detail += " · " + String(localized: "\(unreadable.count) folders couldn't be read")
+        }
+        return detail
+    }
+
     /// A one-line summary for the search panel and the menu.
     var statusText: String {
         if let storeError {
@@ -229,5 +260,19 @@ final class AppModel {
             return String(localized: "No folders selected yet")
         }
         return String(localized: "\(totalItems.formatted()) items indexed")
+    }
+}
+
+/// Saves the exclusion patterns in the user's preferences. New installs get the Windows Server defaults.
+enum ExclusionStorage {
+    private static let key = "exclusionPatterns"
+
+    static func load() -> ExclusionRules {
+        guard let patterns = UserDefaults.standard.stringArray(forKey: key) else { return .windowsServerDefaults }
+        return ExclusionRules(patterns: patterns)
+    }
+
+    static func save(_ rules: ExclusionRules) {
+        UserDefaults.standard.set(rules.patterns, forKey: key)
     }
 }

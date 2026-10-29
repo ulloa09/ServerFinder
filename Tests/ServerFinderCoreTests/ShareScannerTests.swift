@@ -147,4 +147,35 @@ import Testing
         #expect(outcome.error is CancellationError)
         #expect(outcome.records < 200)
     }
+
+    @Test func leavesOutExcludedFilesAndFolders() async throws {
+        try makeFile("Ventas/Cotización.docx")
+        try makeFile("Ventas/~$Cotización.docx")
+        try makeFile("Ventas/Thumbs.db")
+        try makeFile("$RECYCLE.BIN/Deleted.docx")
+        try makeFile("Respaldos/Antiguos/Viejo.xlsx")
+        try makeFile("Respaldos/Actual.xlsx")
+
+        let rules = ExclusionRules(patterns: ExclusionRules.windowsServerDefaults.patterns + ["Respaldos/Antiguos"])
+        var paths: Set<String> = []
+        for try await batch in ShareScanner().scan(root: root, exclusions: rules) {
+            paths.formUnion(batch.records.map(\.relativePath))
+        }
+
+        #expect(paths == ["Ventas", "Ventas/Cotización.docx", "Respaldos", "Respaldos/Actual.xlsx"])
+    }
+
+    @Test func doesNotOpenExcludedFolders() throws {
+        try makeFile("Private/Inside.txt")
+        let privateFolder = root.appendingPathComponent("Private")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: privateFolder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: privateFolder.path) }
+
+        var unreadable: [String] = []
+        try ShareScanner.walk(root: root, exclusions: ExclusionRules(patterns: ["Private"]), batchSize: 10) {
+            unreadable += $0.unreadableFolders
+        }
+
+        #expect(unreadable.isEmpty, "an excluded folder is never opened, so it can't be reported as unreadable")
+    }
 }

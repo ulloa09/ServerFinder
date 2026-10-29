@@ -8,10 +8,17 @@ struct SettingsView: View {
     var body: some View {
         TabView {
             FoldersSettingsView(model: model)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .tabItem { Label("Folders", systemImage: "folder") }
+            ExclusionsSettingsView(model: model)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .tabItem { Label("Excluded", systemImage: "eye.slash") }
             GeneralSettingsView(settings: general)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .tabItem { Label("General", systemImage: "gearshape") }
         }
+        // Every tab gets the same space, so switching tabs never resizes the window.
+        .frame(minWidth: 600, minHeight: 560)
     }
 }
 

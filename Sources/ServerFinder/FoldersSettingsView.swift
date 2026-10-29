@@ -60,7 +60,6 @@ struct FoldersSettingsView: View {
             .foregroundStyle(.secondary)
         }
         .padding(20)
-        .frame(minWidth: 580, idealWidth: 620, minHeight: 520, idealHeight: 600)
         .onAppear(perform: refreshMountedVolumes)
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didMountNotification)) { _ in
             refreshMountedVolumes()

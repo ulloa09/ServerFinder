@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate {
     private let model = AppModel()
     private lazy var searchController = SearchController(model: model)
     private let general = GeneralSettings()
@@ -11,6 +11,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var panel: SearchPanel!
     private var settingsWindow: NSWindow?
     private var keyMonitor: Any?
+    /// The right-click menu while it's open, and what refreshes it.
+    private var statusLineItem: NSMenuItem?
+    private var folderStatusItems: [(folder: IndexedFolder, item: NSMenuItem)] = []
+    private var menuRefreshTimer: Timer?
+    /// Makes the menu bar icon pulse while indexing.
+    private var scanningBlinkTimer: Timer?
     /// When the panel last closed. Clicking the menu bar icon closes the panel (it loses focus)
     /// just before the click arrives; this keeps that click from reopening it.
     private var panelClosedAt = Date.distantPast
@@ -45,6 +51,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         button.target = self
         button.action = #selector(statusItemClicked(_:))
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        observeScanning()
+    }
+
+    /// Keeps the menu bar icon in sync with whether a scan is running.
+    private func observeScanning() {
+        let isScanning = withObservationTracking {
+            model.currentScan != nil
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.observeScanning() }
+        }
+        setScanningIndicator(isScanning)
+    }
+
+    private func setScanningIndicator(_ isScanning: Bool) {
+        guard let button = statusItem.button else { return }
+        button.toolTip = isScanning
+            ? model.statusText
+            : String(localized: "ServerFinder — click to search, right-click for options")
+        guard isScanning != (scanningBlinkTimer != nil) else { return }
+        if isScanning {
+            let timer = Timer(timeInterval: 0.7, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let button = self?.statusItem.button else { return }
+                    button.appearsDisabled.toggle()
+                    button.toolTip = self?.model.statusText
+                }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            scanningBlinkTimer = timer
+        } else {
+            scanningBlinkTimer?.invalidate()
+            scanningBlinkTimer = nil
+            button.appearsDisabled = false
+        }
     }
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
@@ -65,6 +105,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let status = NSMenuItem(title: model.statusText, action: nil, keyEquivalent: "")
         status.isEnabled = false
         menu.addItem(status)
+        statusLineItem = status
+        folderStatusItems = model.folders.map { folder in
+            let item = NSMenuItem(title: folder.name, action: #selector(openSettings), keyEquivalent: "")
+            item.indentationLevel = 1
+            menu.addItem(item)
+            return (folder, item)
+        }
+        refreshStatusMenu()
+        menu.addItem(.separator())
         menu.addItem(withTitle: String(localized: "Rescan Now"), action: #selector(rescanNow), keyEquivalent: "")
             .isEnabled = !model.folders.isEmpty
         menu.addItem(withTitle: String(localized: "Settings…"), action: #selector(openSettings), keyEquivalent: ",")
@@ -74,10 +123,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             item.target = self
         }
         menu.autoenablesItems = false
+        menu.delegate = self
 
         statusItem.menu = menu
         statusItem.button?.performClick(nil)
         statusItem.menu = nil
+    }
+
+    /// Updates the status lines; runs every half second while the menu is open.
+    private func refreshStatusMenu() {
+        statusLineItem?.title = model.statusText
+        for (folder, item) in folderStatusItems {
+            let current = model.folders.first { $0.id == folder.id } ?? folder
+            item.attributedTitle = Self.twoLineTitle(current.name, detail: model.statusDetail(for: current))
+            item.image = model.scanErrors[folder.id] == nil
+                ? nil
+                : NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil)
+        }
+    }
+
+    private static func twoLineTitle(_ title: String, detail: String) -> NSAttributedString {
+        let text = NSMutableAttributedString(string: title, attributes: [.font: NSFont.menuFont(ofSize: 0)])
+        text.append(NSAttributedString(string: "\n" + detail, attributes: [
+            .font: NSFont.menuFont(ofSize: NSFont.smallSystemFontSize),
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ]))
+        return text
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshStatusMenu() }
+        }
+        // .common so it also fires while the menu is being tracked.
+        RunLoop.main.add(timer, forMode: .common)
+        menuRefreshTimer = timer
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        menuRefreshTimer?.invalidate()
+        menuRefreshTimer = nil
+        statusLineItem = nil
+        folderStatusItems = []
     }
 
     @objc private func searchFromMenu() { showPanel(belowStatusItem: true) }
@@ -184,10 +271,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func showSettings() {
         hidePanel()
         if settingsWindow == nil {
-            let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(model: model, general: general)))
+            let content = NSHostingController(rootView: SettingsView(model: model, general: general))
+            // The window keeps the size the user gives it; SwiftUI only sets the minimum.
+            content.sizingOptions = [.minSize]
+            let window = NSWindow(contentViewController: content)
             window.title = String(localized: "ServerFinder Settings")
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             window.isReleasedWhenClosed = false
+            window.setContentSize(NSSize(width: 660, height: 640))
             window.center()
             settingsWindow = window
         }
