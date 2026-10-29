@@ -10,7 +10,17 @@ final class SearchController {
     var query = "" {
         didSet { if query != oldValue { scheduleSearch() } }
     }
+    /// Items whose name or folders match.
     private(set) var results: [SearchHit] = []
+    /// Documents whose text matches, shown in their own tab.
+    private(set) var contentResults: [SearchHit] = []
+
+    enum ResultsTab: Hashable { case names, contents }
+    /// Which list is showing; `selectedIndex` points into it.
+    var tab: ResultsTab = .names {
+        didSet { if tab != oldValue { selectedIndex = 0 } }
+    }
+    var visibleResults: [SearchHit] { tab == .names ? results : contentResults }
     var selectedIndex = 0
     /// True once results for the current text have arrived.
     private(set) var hasResults = false
@@ -34,7 +44,10 @@ final class SearchController {
     var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
     /// The words being searched for, as matched (lowercase, no accents). Used to highlight names.
     private(set) var searchTerms: [String] = []
-    var selectedHit: SearchHit? { results.indices.contains(selectedIndex) ? results[selectedIndex] : nil }
+    var selectedHit: SearchHit? {
+        let visible = visibleResults
+        return visible.indices.contains(selectedIndex) ? visible[selectedIndex] : nil
+    }
 
     func panelWillShow() {
         focusRequest += 1
@@ -49,8 +62,13 @@ final class SearchController {
     }
 
     func moveSelection(by offset: Int) {
-        guard !results.isEmpty else { return }
-        selectedIndex = min(max(selectedIndex + offset, 0), results.count - 1)
+        let count = visibleResults.count
+        guard count > 0 else { return }
+        selectedIndex = min(max(selectedIndex + offset, 0), count - 1)
+    }
+
+    func switchTab() {
+        tab = tab == .names ? .contents : .names
     }
 
     /// Opens the selected item. Returns `true` when it opened and the panel can close.
@@ -76,6 +94,11 @@ final class SearchController {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(hit.url.path, forType: .string)
         showConfirmation(String(localized: "Path copied"))
+    }
+
+    /// Whether the item can be shown in Quick Look (explains why not when it can't).
+    func canPreview(_ hit: SearchHit) -> Bool {
+        isReachable(hit)
     }
 
     /// Checks the item is still there, and explains why not when it isn't.
@@ -105,6 +128,7 @@ final class SearchController {
         let parsed = Query.parse(query)
         guard !parsed.isEmpty else {
             results = []
+            contentResults = []
             searchTerms = []
             selectedIndex = 0
             hasResults = false
@@ -114,12 +138,22 @@ final class SearchController {
         searchTask = Task {
             if debounce { try? await Task.sleep(for: .milliseconds(60)) }
             guard !Task.isCancelled else { return }
-            let hits = await model.search(parsed)
+            async let nameHits = model.search(parsed)
+            async let documentHits = model.searchContents(parsed)
+            let hits = await nameHits
+            let contentHits = await documentHits
             guard !Task.isCancelled else { return }
             results = hits
+            contentResults = contentHits
             searchTerms = parsed.terms
-            // Keep the same row selected when results refresh underneath the user.
-            selectedIndex = debounce ? 0 : (hits.firstIndex { $0.id == previousSelection } ?? 0)
+            if debounce {
+                // New text: start on names, unless only the contents matched.
+                tab = hits.isEmpty && !contentHits.isEmpty ? .contents : .names
+                selectedIndex = 0
+            } else {
+                // Results refreshed underneath the user: keep the same row selected.
+                selectedIndex = visibleResults.firstIndex { $0.id == previousSelection } ?? 0
+            }
             hasResults = true
         }
     }

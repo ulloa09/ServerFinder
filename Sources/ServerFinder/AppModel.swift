@@ -2,6 +2,13 @@ import Foundation
 import Observation
 import ServerFinderCore
 
+struct ContentProgress: Equatable {
+    var folderID: UUID
+    var folderName: String
+    var done: Int
+    var total: Int
+}
+
 struct ScanOutcome {
     var itemCount: Int
     var unreadableFolders: [String]
@@ -17,6 +24,9 @@ struct ScanProgress: Equatable {
 struct SearchHit: Identifiable, Hashable {
     let result: SearchResult
     let folder: IndexedFolder
+
+    /// For matches inside the file: the matching passage (see ``ContentResult/snippet``).
+    var snippet: String?
 
     var id: String { result.share + "/" + result.relativePath }
     var name: String { result.name }
@@ -44,6 +54,10 @@ final class AppModel {
     private(set) var exclusions: ExclusionRules {
         didSet { ExclusionStorage.save(exclusions) }
     }
+    /// Files whose text is never read or stored (they're still found by name).
+    private(set) var neverRead: ExclusionRules {
+        didSet { ExclusionStorage.saveNeverRead(neverRead) }
+    }
     /// Folders the last scan couldn't read (no permission), relative to each indexed folder.
     private(set) var unreadableFolders: [UUID: [String]] = [:]
     /// Increases whenever newly indexed items become searchable, so open searches can refresh.
@@ -55,9 +69,17 @@ final class AppModel {
     private let scanner = ShareScanner()
     private var scanTask: Task<Void, Never>?
 
+    /// Reading document contents runs after name scans, one folder at a time.
+    private(set) var contentProgress: ContentProgress?
+    private var contentQueue: [UUID] = []
+    private var contentTask: Task<Void, Never>?
+    nonisolated static let contentExtensions = TextExtractor.supportedExtensions
+    nonisolated static let contentMaxSize: Int64 = 20 * 1_024 * 1_024
+
     init() {
         folders = IndexedFolderStorage.load()
         exclusions = ExclusionStorage.load()
+        neverRead = ExclusionStorage.loadNeverRead()
         do {
             store = try IndexStore(url: Self.indexURL)
             storeError = nil
@@ -113,6 +135,8 @@ final class AppModel {
         scanErrors[folder.id] = nil
         unreadableFolders[folder.id] = nil
         if currentScan?.folderID == folder.id { scanTask?.cancel() }
+        contentQueue.removeAll { $0 == folder.id }
+        if contentProgress?.folderID == folder.id { contentTask?.cancel() }
         guard let store else { return }
         Task.detached(priority: .utility) {
             try? store.removeShare(folder.shareKey)
@@ -128,6 +152,49 @@ final class AppModel {
 
     func restoreDefaultExclusions() {
         exclusions = .windowsServerDefaults
+    }
+
+    func setNeverReadPatterns(_ patterns: [String]) {
+        neverRead = ExclusionRules(patterns: patterns)
+        removeNeverReadContents()
+    }
+
+    func restoreDefaultNeverRead() {
+        neverRead = .sensitiveDefaults
+        removeNeverReadContents()
+    }
+
+    /// Deletes stored text of files the "never read" list matches, in every folder, right away
+    /// (no need for the share to be connected: it only touches the local index).
+    /// `then` runs afterwards, on the main actor.
+    func removeNeverReadContents(then: (@MainActor () -> Void)? = nil) {
+        guard let store else { then?(); return }
+        let shares = folders.map(\.shareKey)
+        let neverRead = neverRead
+        Task.detached(priority: .userInitiated) { [weak self] in
+            for share in shares {
+                // A running name scan can hold the database for minutes: keep trying rather
+                // than leaving private text behind.
+                for attempt in 1...60 {
+                    do {
+                        let updates = try store.beginContentUpdates(share: share)
+                        if try updates.removeStale(keepingExtensions: Self.contentExtensions, neverRead: neverRead) > 0 {
+                            try updates.scrubDeletedText()
+                        }
+                        break
+                    } catch {
+                        guard attempt < 60 else { break }
+                        try? await Task.sleep(for: .seconds(5))
+                    }
+                }
+            }
+            await self?.contentRemoved()
+            await then?()
+        }
+    }
+
+    private func contentRemoved() {
+        indexVersion += 1
     }
 
     // MARK: Scanning
@@ -175,6 +242,8 @@ final class AppModel {
         for folder in leaving {
             queuedScans.removeAll { $0 == folder.id }
             if currentScan?.folderID == folder.id { scanTask?.cancel() }
+            contentQueue.removeAll { $0 == folder.id }
+            if contentProgress?.folderID == folder.id { contentTask?.cancel() }
         }
     }
 
@@ -254,6 +323,7 @@ final class AppModel {
             if let index = folders.firstIndex(where: { $0.id == folder.id }) {
                 folders[index].lastIndexedAt = .now
             }
+            enqueueContentReading(of: folder.id)
         case .failure(is CancellationError):
             break
         case .failure(ScanError.rootUnavailable):
@@ -283,6 +353,93 @@ final class AppModel {
         itemCounts.merge(counts) { current, _ in current }
     }
 
+    // MARK: Reading contents
+
+    private func enqueueContentReading(of folderID: UUID) {
+        guard contentProgress?.folderID != folderID, !contentQueue.contains(folderID) else { return }
+        contentQueue.append(folderID)
+        startNextContentReadingIfIdle()
+    }
+
+    private var isNameScanRunning: Bool { currentScan != nil }
+
+    private func startNextContentReadingIfIdle() {
+        guard contentTask == nil, let store else { return }
+        while !contentQueue.isEmpty {
+            let folderID = contentQueue.removeFirst()
+            guard let folder = folders.first(where: { $0.id == folderID }), folder.isConnected else { continue }
+            contentProgress = ContentProgress(folderID: folder.id, folderName: folder.name, done: 0, total: 0)
+            let neverRead = neverRead
+            contentTask = Task.detached(priority: .utility) { [weak self] in
+                let finishedNormally: Bool
+                do {
+                    try await Self.readContents(of: folder, store: store, neverRead: neverRead, model: self)
+                    finishedNormally = true
+                } catch {
+                    finishedNormally = false
+                }
+                await self?.contentReadingFinished(folder, completed: finishedNormally)
+            }
+            return
+        }
+    }
+
+    /// Reads every new or changed document of `folder`, saving each result as it goes.
+    /// Stops (throwing) if cancelled or if the share disappears; the next pass continues from there.
+    private nonisolated static func readContents(
+        of folder: IndexedFolder, store: IndexStore, neverRead: ExclusionRules, model: AppModel?
+    ) async throws {
+        let updates = try store.beginContentUpdates(share: folder.shareKey)
+        try updates.removeStale(keepingExtensions: contentExtensions, neverRead: neverRead)
+        let pending = try updates.pendingFiles(extensions: contentExtensions, maxSize: contentMaxSize, neverRead: neverRead)
+        await model?.contentMadeProgress(done: 0, total: pending.count, becameSearchable: false)
+
+        var lastReport = Date.distantPast
+        for (index, file) in pending.enumerated() {
+            try Task.checkCancellation()
+            // Name scans come first: they're what makes new files findable at all.
+            while await model?.isNameScanRunning == true {
+                try await Task.sleep(for: .seconds(2))
+            }
+            let url = folder.url.appendingPathComponent(file.relativePath)
+            do {
+                switch try TextExtractor.text(of: url) {
+                case .text(let text): try updates.record(file, outcome: .indexed, text: text)
+                case .needsOCR: try updates.record(file, outcome: .needsOCR)
+                case .unsupported: try updates.record(file, outcome: .failed)
+                }
+            } catch let error as ExtractionError {
+                // A damaged file — unless the whole share went away, which isn't the file's fault.
+                guard FileManager.default.fileExists(atPath: folder.path) else { throw error }
+                try updates.record(file, outcome: .failed)
+            } catch {
+                guard FileManager.default.fileExists(atPath: folder.path) else { throw error }
+                if (error as NSError).domain == NSCocoaErrorDomain {
+                    try updates.record(file, outcome: .failed) // e.g. no permission to read the file
+                } else {
+                    throw error // database trouble: stop and retry on the next pass
+                }
+            }
+            if Date().timeIntervalSince(lastReport) > 0.5 || index == pending.count - 1 {
+                lastReport = Date()
+                await model?.contentMadeProgress(done: index + 1, total: pending.count, becameSearchable: true)
+            }
+        }
+    }
+
+    private func contentMadeProgress(done: Int, total: Int, becameSearchable: Bool) {
+        contentProgress?.done = done
+        contentProgress?.total = total
+        if becameSearchable { indexVersion += 1 }
+    }
+
+    private func contentReadingFinished(_ folder: IndexedFolder, completed: Bool) {
+        contentTask = nil
+        contentProgress = nil
+        indexVersion += 1
+        startNextContentReadingIfIdle()
+    }
+
     // MARK: Searching
 
     func search(_ query: Query) async -> [SearchHit] {
@@ -296,6 +453,18 @@ final class AppModel {
         }
     }
 
+    /// Documents whose text contains every word of `query`.
+    func searchContents(_ query: Query) async -> [SearchHit] {
+        guard let store, !query.terms.isEmpty else { return [] }
+        let results = await Task.detached(priority: .userInitiated) {
+            (try? store.searchContent(query)) ?? []
+        }.value
+        let foldersByKey = Dictionary(uniqueKeysWithValues: folders.map { ($0.shareKey, $0) })
+        return results.compactMap { match in
+            foldersByKey[match.result.share].map { SearchHit(result: match.result, folder: $0, snippet: match.snippet) }
+        }
+    }
+
     // MARK: Status
 
     /// One line about a folder: its progress, problem, or size and freshness.
@@ -304,6 +473,9 @@ final class AppModel {
             return String(localized: "Indexing… \(scan.found.formatted()) found")
         }
         if isQueued(folder) { return String(localized: "Waiting to index…") }
+        if let reading = contentProgress, reading.folderID == folder.id, reading.total > 0 {
+            return String(localized: "Reading documents… \(reading.done.formatted()) of \(reading.total.formatted())")
+        }
         if let error = scanErrors[folder.id] { return error }
         guard let lastIndexed = folder.lastIndexedAt else { return String(localized: "Not indexed yet") }
         var detail = String(localized: "\((itemCounts[folder.id] ?? 0).formatted()) items · updated \(lastIndexed.formatted(.relative(presentation: .named)))")
@@ -325,6 +497,9 @@ final class AppModel {
             }
             return String(localized: "Indexing “\(scan.folderName)”… \(found) items found · \(queuedScans.count) in queue")
         }
+        if let reading = contentProgress, reading.total > 0 {
+            return String(localized: "Reading documents in “\(reading.folderName)”… \(reading.done.formatted()) of \(reading.total.formatted())")
+        }
         if folders.isEmpty {
             return String(localized: "No folders selected yet")
         }
@@ -335,6 +510,16 @@ final class AppModel {
 /// Saves the exclusion patterns in the user's preferences. New installs get the Windows Server defaults.
 enum ExclusionStorage {
     private static let key = "exclusionPatterns"
+    private static let neverReadKey = "neverReadPatterns"
+
+    static func loadNeverRead() -> ExclusionRules {
+        guard let patterns = UserDefaults.standard.stringArray(forKey: neverReadKey) else { return .sensitiveDefaults }
+        return ExclusionRules(patterns: patterns)
+    }
+
+    static func saveNeverRead(_ rules: ExclusionRules) {
+        UserDefaults.standard.set(rules.patterns, forKey: neverReadKey)
+    }
 
     static func load() -> ExclusionRules {
         guard let patterns = UserDefaults.standard.stringArray(forKey: key) else { return .windowsServerDefaults }

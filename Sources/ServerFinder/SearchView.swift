@@ -1,4 +1,5 @@
 import AppKit
+import ServerFinderCore
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -78,16 +79,50 @@ struct SearchView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-        } else if controller.results.isEmpty && controller.hasResults {
+        } else if controller.results.isEmpty && controller.contentResults.isEmpty && controller.hasResults {
             EmptyStateView(
                 systemImage: "questionmark.folder",
                 title: "No matches for “\(controller.trimmedQuery)”",
-                message: model.currentScan == nil
+                message: model.currentScan == nil && model.contentProgress == nil
                     ? "Try fewer letters or a different part of the name."
                     : "Still indexing — more results may appear in a moment."
             )
         } else {
-            ResultsList(controller: controller, onDidOpen: onDidOpen)
+            VStack(spacing: 0) {
+                if controller.hasResults {
+                    ResultsTabBar(controller: controller, isReadingDocuments: model.contentProgress != nil)
+                }
+                if controller.visibleResults.isEmpty && controller.hasResults {
+                    emptyTabMessage
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ResultsList(controller: controller, onDidOpen: onDidOpen)
+                }
+            }
+        }
+    }
+
+    /// One tab is empty while the other has results.
+    @ViewBuilder
+    private var emptyTabMessage: some View {
+        if controller.tab == .names {
+            EmptyStateView(
+                systemImage: "doc.text.magnifyingglass",
+                title: "No names match",
+                message: "\(controller.contentResults.count) documents contain these words. Press Tab to see them."
+            )
+        } else if let reading = model.contentProgress, reading.total > 0 {
+            EmptyStateView(
+                systemImage: "hourglass",
+                title: "No documents contain these words yet",
+                message: "Still reading documents (\(reading.done.formatted()) of \(reading.total.formatted())). More matches may appear."
+            )
+        } else {
+            EmptyStateView(
+                systemImage: "doc.text",
+                title: "No documents contain these words",
+                message: "Inside documents, words match from their beginning. Press Tab to go back to name results."
+            )
         }
     }
 
@@ -110,7 +145,7 @@ struct SearchView: View {
             }
             Spacer()
             if controller.selectedHit != nil {
-                Text("↩ Open   ⌘↩ Show in Finder   ⌘C Copy Path")
+                Text("↩ Open   ␣ Preview   ⌘↩ Show in Finder   ⌘C Copy Path")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
@@ -142,41 +177,84 @@ private struct ResultsList: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 2) {
-                    ForEach(Array(controller.results.enumerated()), id: \.element.id) { index, hit in
-                        ResultRow(
-                            hit: hit,
-                            terms: controller.searchTerms,
-                            isSelected: index == controller.selectedIndex
-                        )
-                        .id(hit.id)
-                        .contentShape(Rectangle())
-                        .onTapGesture(count: 2) {
-                            controller.selectedIndex = index
-                            if controller.open(hit) { onDidOpen() }
-                        }
-                        .simultaneousGesture(TapGesture().onEnded { controller.selectedIndex = index })
-                        // Drag a result into Mail, Finder or any app that accepts files.
-                        .onDrag { NSItemProvider(contentsOf: hit.url) ?? NSItemProvider() }
-                        .contextMenu {
-                            Button("Open") {
-                                if controller.open(hit) { onDidOpen() }
-                            }
-                            Button("Show in Finder") {
-                                if controller.revealInFinder(hit) { onDidOpen() }
-                            }
-                            Divider()
-                            Button("Copy Path") { controller.copyPath(hit) }
-                        }
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    ForEach(Array(controller.visibleResults.enumerated()), id: \.element.id) { index, hit in
+                        row(hit, at: index)
                     }
                 }
                 .padding(6)
             }
+            .id(controller.tab) // start at the top when switching tabs
             .onChange(of: controller.selectedIndex) {
                 guard let hit = controller.selectedHit else { return }
                 proxy.scrollTo(hit.id)
             }
         }
+    }
+
+    private func row(_ hit: SearchHit, at index: Int) -> some View {
+        ResultRow(
+            hit: hit,
+            terms: controller.searchTerms,
+            isSelected: index == controller.selectedIndex
+        )
+        .id(hit.id)
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            controller.selectedIndex = index
+            if controller.open(hit) { onDidOpen() }
+        }
+        .simultaneousGesture(TapGesture().onEnded { controller.selectedIndex = index })
+        // Drag a result into Mail, Finder or any app that accepts files.
+        .onDrag { NSItemProvider(contentsOf: hit.url) ?? NSItemProvider() }
+        .contextMenu {
+            Button("Open") {
+                if controller.open(hit) { onDidOpen() }
+            }
+            Button("Show in Finder") {
+                if controller.revealInFinder(hit) { onDidOpen() }
+            }
+            Divider()
+            Button("Copy Path") { controller.copyPath(hit) }
+        }
+    }
+}
+
+/// "Names (12) | Inside files (3)". Tab switches between them.
+private struct ResultsTabBar: View {
+    let controller: SearchController
+    let isReadingDocuments: Bool
+
+    var body: some View {
+        @Bindable var controller = controller
+        return HStack(spacing: 10) {
+            Picker("", selection: $controller.tab) {
+                Text("Names (\(Self.count(controller.results.count, limit: 200)))")
+                    .tag(SearchController.ResultsTab.names)
+                Text("Inside files (\(Self.count(controller.contentResults.count, limit: 50)))")
+                    .tag(SearchController.ResultsTab.contents)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            if isReadingDocuments {
+                ProgressView()
+                    .controlSize(.mini)
+                    .help("Still reading documents: more matches inside files may appear.")
+            }
+            Spacer()
+            Text("⇥ Tab to switch")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 8)
+        .padding(.bottom, 2)
+    }
+
+    /// Results are capped; show "200+" rather than a misleading exact count.
+    private static func count(_ value: Int, limit: Int) -> String {
+        value >= limit ? "\(limit)+" : "\(value)"
     }
 }
 
@@ -199,6 +277,12 @@ private struct ResultRow: View {
                     .foregroundStyle(isSelected ? AnyShapeStyle(.white.opacity(0.85)) : AnyShapeStyle(.secondary))
                     .lineLimit(1)
                     .truncationMode(.head)
+                if let snippet = hit.snippet {
+                    Text(Self.highlighted(snippet))
+                        .font(.caption)
+                        .foregroundStyle(isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary.opacity(0.8)))
+                        .lineLimit(2)
+                }
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 2) {
@@ -222,6 +306,28 @@ private struct ResultRow: View {
                 .fill(isSelected ? Color.accentColor : .clear)
         )
         .help(hit.url.path)
+    }
+
+    /// A content preview with the matched words (between the snippet markers) in bold.
+    static func highlighted(_ snippet: String) -> AttributedString {
+        var result = AttributedString()
+        var isMatch = false
+        var current = ""
+        func flush() {
+            var part = AttributedString(current)
+            if isMatch { part.font = .caption.bold() }
+            result += part
+            current = ""
+        }
+        for character in snippet {
+            switch character {
+            case ContentResult.highlightStart: flush(); isMatch = true
+            case ContentResult.highlightEnd: flush(); isMatch = false
+            default: current.append(character)
+            }
+        }
+        flush()
+        return result
     }
 
     /// The name with the searched words in bold.

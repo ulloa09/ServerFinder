@@ -51,4 +51,12 @@ import Testing
     @Test func noRulesExcludeNothing() {
         #expect(!ExclusionRules.none.excludes(name: "anything", relativePath: "anything"))
     }
+
+    @Test func itemOrFolderChecksEveryFolderAbove() {
+        let rules = ExclusionRules(patterns: ["*contraseña*"])
+        #expect(rules.excludesItemOrFolder(relativePath: "Contabilidad/Contraseñas/datos.txt"))
+        #expect(rules.excludesItemOrFolder(relativePath: "Contabilidad/Contrasen\u{303}as/datos.txt"))
+        #expect(rules.excludesItemOrFolder(relativePath: "Contraseña.txt"))
+        #expect(!rules.excludesItemOrFolder(relativePath: "Contabilidad/Notas/datos.txt"))
+    }
 }

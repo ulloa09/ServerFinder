@@ -123,3 +123,32 @@
 "App not found — using the Mac's default" = "App no encontrada: se usa la predeterminada del Mac";
 "Choose" = "Elegir";
 "Choose the app that should open .%@ files." = "Elige la app que debe abrir los archivos .%@.";
+
+/* Content search */
+"Inside files" = "Dentro de archivos";
+"Reading documents in “%@”… %@ of %@" = "Leyendo documentos de “%1$@”… %2$@ de %3$@";
+"Reading documents… %@ of %@" = "Leyendo documentos… %1$@ de %2$@";
+
+/* Result tabs */
+"Names (%@)" = "Nombres (%@)";
+"Inside files (%@)" = "Dentro de archivos (%@)";
+"⇥ Tab to switch" = "⇥ Tab para cambiar";
+"Still reading documents: more matches inside files may appear." = "Todavía leyendo documentos: pueden aparecer más resultados dentro de archivos.";
+"No names match" = "Ningún nombre coincide";
+"%lld documents contain these words. Press Tab to see them." = "%lld documentos contienen estas palabras. Pulsa Tab para verlos.";
+"No documents contain these words yet" = "Aún ningún documento contiene estas palabras";
+"Still reading documents (%@ of %@). More matches may appear." = "Todavía leyendo documentos (%1$@ de %2$@). Pueden aparecer más resultados.";
+"No documents contain these words" = "Ningún documento contiene estas palabras";
+"Inside documents, words match from their beginning. Press Tab to go back to name results." = "Dentro de los documentos, las palabras coinciden desde su inicio. Pulsa Tab para volver a los resultados por nombre.";
+
+/* Never read contents */
+"Files and folders with these names aren't indexed at all. Excluded folders aren't even opened, which also makes scans faster." = "Los archivos y carpetas con estos nombres no se indexan. Las carpetas excluidas ni siquiera se abren, lo que además acelera el indexado.";
+"Never read the contents of" = "Nunca leer el contenido de";
+"Files with these names, and everything inside folders with these names, are still found by name, but ServerFinder never reads or stores what's inside them. Use it for passwords or other private data. Changes apply right away." = "Los archivos con estos nombres, y todo lo que haya dentro de carpetas con estos nombres, se siguen encontrando por nombre, pero ServerFinder nunca lee ni guarda lo que contienen. Úsalo para contraseñas u otros datos privados. Los cambios se aplican de inmediato.";
+"Name or pattern, e.g. *contraseña*" = "Nombre o patrón, p. ej. *contraseña*";
+"Restore Defaults" = "Restaurar valores";
+"* means any text, ? one character. Capitals don't matter. A pattern with / (e.g. Backups/Old) means a folder inside a shared folder." = "* es cualquier texto, ? un solo carácter. No importan las mayúsculas. Un patrón con / (p. ej. Respaldos/Antiguos) es una carpeta dentro de una carpeta compartida.";
+"Nothing here yet." = "Aún no hay nada.";
+
+/* Quick Look */
+"↩ Open   ␣ Preview   ⌘↩ Show in Finder   ⌘C Copy Path" = "↩ Abrir   ␣ Vista previa   ⌘↩ Mostrar en Finder   ⌘C Copiar ruta";

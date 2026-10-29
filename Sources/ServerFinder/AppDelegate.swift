@@ -22,6 +22,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     /// When the panel last closed. Clicking the menu bar icon closes the panel (it loses focus)
     /// just before the click arrives; this keeps that click from reopening it.
     private var panelClosedAt = Date.distantPast
+    /// True after ↑/↓ until the next typed character: Space then previews instead of typing.
+    private var isBrowsingResults = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.make(target: self)
@@ -33,13 +35,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             onDidOpen: { [weak self] in self?.hidePanel() }
         ))
         panel.delegate = self
+        panel.previewURL = { [weak self] in
+            guard let self, let hit = self.searchController.selectedHit else { return nil }
+            return hit.url
+        }
+        panel.moveSelection = { [weak self] offset in self?.searchController.moveSelection(by: offset) }
         general.activateShortcut { [weak self] in self?.searchShortcutPressed() }
 
         shareMonitor.start()
         if model.folders.isEmpty {
             showSettings()
         } else {
-            model.scanConnectedFolders()
+            // Private text goes first, before any scan can hold the database.
+            model.removeNeverReadContents { [weak self] in self?.model.scanConnectedFolders() }
         }
     }
 
@@ -207,6 +215,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     private func hidePanel() {
         guard panel.isVisible else { return }
+        if panel.isPreviewing { panel.togglePreview() }
+        isBrowsingResults = false
         panel.orderOut(nil)
         panelClosedAt = Date()
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
@@ -214,7 +224,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     func windowDidResignKey(_ notification: Notification) {
-        if (notification.object as? NSWindow) === panel { hidePanel() }
+        // The Quick Look preview takes the keyboard; keep the search panel open behind it.
+        if (notification.object as? NSWindow) === panel, !panel.isPreviewing { hidePanel() }
     }
 
     /// Arrow keys, Return and Esc work while typing in the search field.
@@ -242,8 +253,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         switch (keyCode, modifier) {
         case (125, .none): // Down arrow
             searchController.moveSelection(by: 1)
+            isBrowsingResults = true
         case (126, .none): // Up arrow
             searchController.moveSelection(by: -1)
+            isBrowsingResults = true
+        case (49, .none): // Space: preview while browsing results, otherwise type a space
+            guard isBrowsingResults else { return false }
+            previewSelected()
+        case (16, .command): // ⌘Y: preview, like Finder
+            previewSelected()
         case (36, .none), (76, .none): // Return, Enter
             if searchController.openSelected() { hidePanel() }
         case (36, .command), (76, .command): // ⌘Return: show in Finder
@@ -252,6 +270,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         case (8, .command): // ⌘C: copy the result's path, unless text is selected in the search field
             guard let hit = searchController.selectedHit, !searchFieldHasSelectedText else { return false }
             searchController.copyPath(hit)
+        case (48, .none): // Tab: switch between name results and matches inside files
+            guard searchController.hasResults else { return false }
+            searchController.switchTab()
         case (53, .none): // Esc: clear the text first, then close
             if searchController.query.isEmpty {
                 hidePanel()
@@ -259,9 +280,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 searchController.query = ""
             }
         default:
+            isBrowsingResults = false // typing again
             return false
         }
         return true
+    }
+
+    private func previewSelected() {
+        guard let hit = searchController.selectedHit, searchController.canPreview(hit) else { return }
+        panel.togglePreview()
     }
 
     private var searchFieldHasSelectedText: Bool {

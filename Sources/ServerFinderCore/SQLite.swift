@@ -7,7 +7,7 @@ public struct IndexStoreError: Error, CustomStringConvertible {
 
 private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
-enum SQLValue {
+enum SQLValue: Equatable {
     case text(String)
     case int(Int64)
     case double(Double)
@@ -29,6 +29,8 @@ final class Connection {
         handle = db
         // Readers and the scan writer share the file; wait instead of failing when it's busy.
         sqlite3_busy_timeout(db, 60_000)
+        // Overwrite deleted data with zeros, so removed document text doesn't linger in the file.
+        sqlite3_exec(db, "PRAGMA secure_delete = ON", nil, nil, nil)
     }
 
     deinit {
@@ -53,6 +55,10 @@ final class Connection {
             let statement = try prepare("PRAGMA user_version")
             return try statement.step() ? Int(statement.int(0)) : 0
         }
+    }
+
+    var lastInsertedRowID: Int64 {
+        sqlite3_last_insert_rowid(handle)
     }
 
     var errorMessage: String {

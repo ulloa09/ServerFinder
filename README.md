@@ -26,7 +26,15 @@ See [docs/PRD.md](docs/PRD.md) for the full plan.
    - Exact names come first, then names containing every word, then files found through
      their folders; newer files first within each group.
    - Each result shows where it lives, when it was last modified and its size.
+   - Words written *inside* documents are found too (text, CSV, XML, RTF, Word): those
+     appear in the **Inside files** tab (press **Tab** to switch from **Names**), with a
+     preview of the matching text. Documents are read
+     in the background after each scan; later only new or changed files are read again.
+     Inside documents, words match from their beginning (`cotiz` finds "cotización").
    - **↑ / ↓** to pick a result, **Return** to open it, double-click works too.
+   - **Space** previews the selected result with Quick Look (PDFs, images, Office files…)
+     once you've moved through the results with ↑/↓; while you're typing, Space types a
+     space. **⌘Y** previews at any time. ↑/↓ inside the preview move to other results.
    - **⌘Return** shows it in Finder, **⌘C** copies its full path, and you can drag a result
      into Mail or any other app. Right-click a result for the same options.
    - **Esc** clears the text; press it again to close.
@@ -40,6 +48,10 @@ without a rule, and rules whose app was uninstalled, use the Mac's default app.
 
 Some files are left out on purpose: Windows system folders (`$RECYCLE.BIN`,
 `System Volume Information`), `Thumbs.db`, `desktop.ini` and Office lock files (`~$…`).
+Files with passwords (and files inside folders named like that) are still found by name,
+but their contents are never read: the
+**Never read the contents of** list (`*contraseña*`, `*password*`, `*clave*`…) is in
+**Settings → Excluded**, and adding a pattern deletes any text already stored for it.
 Edit the list in **Settings → Excluded**; `*` and `?` work as wildcards, and a pattern with
 `/` (e.g. `Backups/Old`) leaves out one folder inside a shared folder.
 

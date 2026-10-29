@@ -17,8 +17,8 @@ public struct SearchResult: Sendable, Hashable {
 /// previous index until a scan finishes.
 public final class IndexStore: @unchecked Sendable {
     public let url: URL
-    private let reader: Connection
-    private let readerLock = NSLock()
+    let reader: Connection
+    let readerLock = NSLock()
 
     private static let schemaVersion = 2
 
@@ -52,6 +52,8 @@ public final class IndexStore: @unchecked Sendable {
             try setup.execute("DROP TABLE IF EXISTS entries")
         }
         try setup.execute(Self.schema)
+        // Document text lives in its own tables, kept even when the name index is rebuilt.
+        try setup.execute(Self.contentSchema)
         self.url = url
         self.reader = try Connection(url: url)
     }
@@ -144,9 +146,17 @@ public final class IndexStore: @unchecked Sendable {
     /// Deletes everything stored for `share`.
     public func removeShare(_ share: String) throws {
         let connection = try Connection(url: url)
-        let statement = try connection.prepare("DELETE FROM entries WHERE share = ?")
-        try statement.bind([.text(share)])
-        _ = try statement.step()
+        try connection.execute("BEGIN IMMEDIATE")
+        for sql in [
+            "DELETE FROM entries WHERE share = ?",
+            "DELETE FROM contents WHERE rowid IN (SELECT content_rowid FROM content_state WHERE share = ?)",
+            "DELETE FROM content_state WHERE share = ?",
+        ] {
+            let statement = try connection.prepare(sql)
+            try statement.bind([.text(share)])
+            _ = try statement.step()
+        }
+        try connection.execute("COMMIT")
     }
 }
 

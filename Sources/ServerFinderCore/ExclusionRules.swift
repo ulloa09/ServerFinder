@@ -25,6 +25,15 @@ public struct ExclusionRules: Sendable, Equatable {
 
     public static let none = ExclusionRules(patterns: [])
 
+    /// Files likely to hold passwords: still found by name, but their text is never stored.
+    public static let sensitiveDefaults = ExclusionRules(patterns: [
+        "*contraseña*",
+        "*contrasena*",
+        "*password*",
+        "*passwd*",
+        "*clave*",
+    ])
+
     public init(patterns: [String]) {
         var cleaned: [String] = []
         for pattern in patterns {
@@ -70,6 +79,16 @@ public struct ExclusionRules: Sendable, Equatable {
         if exactPaths.contains(path) { return true }
         let characters = Array(path)
         return wildcardPaths.contains { Self.matches($0, characters) }
+    }
+
+    /// Whether the item at `relativePath`, or any folder above it, should be left out.
+    public func excludesItemOrFolder(relativePath: String) -> Bool {
+        var path = ""
+        for component in relativePath.split(separator: "/") {
+            path = path.isEmpty ? String(component) : path + "/" + component
+            if excludes(name: String(component), relativePath: path) { return true }
+        }
+        return false
     }
 
     /// `*` matches any run of characters, `?` exactly one.

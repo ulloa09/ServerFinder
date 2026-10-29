@@ -24,5 +24,6 @@ if [[ "${1:-}" == "--install" ]]; then
     rm -rf /Applications/ServerFinder.app
     cp -R "$app" /Applications/
     echo "Installed /Applications/ServerFinder.app"
-    open /Applications/ServerFinder.app
+    # Right after the old copy quits, macOS sometimes refuses the first launch (error -600).
+    for _ in 1 2 3; do open /Applications/ServerFinder.app 2>/dev/null && break; sleep 1; done
 fi
