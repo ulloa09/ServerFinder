@@ -95,4 +95,65 @@ import Testing
         let url = try write(Data(long.utf8), as: "largo.txt")
         #expect(try text(url).count <= TextExtractor.maxCharacters)
     }
+
+    // MARK: PDF
+
+    /// Draws a PDF in the test: one page per entry, with that text (or just a box, like a scan).
+    private func makePDF(_ pages: [String?], as name: String, password: String? = nil) throws -> URL {
+        let url = folder.appendingPathComponent(name)
+        var box = CGRect(x: 0, y: 0, width: 612, height: 792)
+        var options: [CFString: Any] = [:]
+        if let password {
+            options[kCGPDFContextUserPassword] = password
+            options[kCGPDFContextOwnerPassword] = password
+        }
+        let context = try #require(CGContext(url as CFURL, mediaBox: &box, options as CFDictionary))
+        for page in pages {
+            context.beginPDFPage(nil)
+            if let page {
+                let line = CTLineCreateWithAttributedString(NSAttributedString(
+                    string: page, attributes: [.font: NSFont.systemFont(ofSize: 14)]
+                ))
+                context.textPosition = CGPoint(x: 72, y: 700)
+                CTLineDraw(line, context)
+            } else {
+                context.setFillColor(gray: 0.5, alpha: 1)
+                context.fill(CGRect(x: 72, y: 72, width: 400, height: 600)) // an "image" of a page
+            }
+            context.endPDFPage()
+        }
+        context.closePDF()
+        return url
+    }
+
+    @Test func readsPDFText() throws {
+        let url = try makePDF([
+            "Reglamento escolar: evaluación del primer trimestre",
+            "Segunda página con la calificación final",
+        ], as: "reglamento.pdf")
+
+        let result = try text(url)
+        #expect(result.contains("evaluación del primer trimestre"))
+        #expect(result.contains("calificación final"))
+    }
+
+    @Test func scannedPDFNeedsTextRecognition() throws {
+        let url = try makePDF([nil, nil], as: "escaneo.pdf")
+        #expect(try TextExtractor.text(of: url) == .needsOCR)
+    }
+
+    @Test func aPageNumberDoesNotMakeAScanSearchable() throws {
+        let url = try makePDF(["1", nil, "3"], as: "escaneo con folio.PDF")
+        #expect(try TextExtractor.text(of: url) == .needsOCR)
+    }
+
+    @Test func passwordProtectedPDFThrows() throws {
+        let url = try makePDF(["Confidencial"], as: "protegido.pdf", password: "1234")
+        #expect(throws: ExtractionError.self) { try TextExtractor.text(of: url) }
+    }
+
+    @Test func damagedPDFThrows() throws {
+        let url = try write(Data("%PDF-1.7 not really".utf8), as: "roto.pdf")
+        #expect(throws: ExtractionError.self) { try TextExtractor.text(of: url) }
+    }
 }

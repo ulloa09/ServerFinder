@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import PDFKit
 
 /// The outcome of reading a document's text.
 public enum Extraction: Equatable, Sendable {
@@ -20,7 +21,11 @@ public enum TextExtractor {
     public static let maxCharacters = 500_000
 
     /// File types (lowercase extensions) this version can read.
-    public static let supportedExtensions: Set<String> = ["txt", "csv", "xml", "rtf", "docx", "doc"]
+    public static let supportedExtensions: Set<String> = ["txt", "csv", "xml", "rtf", "docx", "doc", "pdf"]
+
+    /// A PDF with fewer readable characters than this per page, on average, is treated as
+    /// scanned (a page number or a stamp doesn't make a scan searchable).
+    static let minimumCharactersPerPage = 20
 
     public static func text(of url: URL) throws -> Extraction {
         let raw: String
@@ -35,6 +40,8 @@ public enum TextExtractor {
             raw = try attributedText(of: url, type: .officeOpenXML)
         case "doc":
             raw = try attributedText(of: url, type: .docFormat)
+        case "pdf":
+            return try pdfText(of: url)
         default:
             return .unsupported
         }
@@ -42,6 +49,21 @@ public enum TextExtractor {
     }
 
     // MARK: Formats
+
+    private static func pdfText(of url: URL) throws -> Extraction {
+        guard let document = PDFDocument(url: url) else {
+            throw ExtractionError(reason: "Couldn't open \(url.lastPathComponent) as a PDF")
+        }
+        guard !document.isLocked else {
+            throw ExtractionError(reason: "\(url.lastPathComponent) is password-protected")
+        }
+        let text = compact(document.string ?? "")
+        let visibleCharacters = text.unicodeScalars.lazy.filter { !CharacterSet.whitespacesAndNewlines.contains($0) }.count
+        if visibleCharacters < max(document.pageCount, 1) * minimumCharactersPerPage {
+            return .needsOCR
+        }
+        return .text(text)
+    }
 
     private static func attributedText(of url: URL, type: NSAttributedString.DocumentType) throws -> String {
         do {

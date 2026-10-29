@@ -188,4 +188,19 @@ import Testing
         #expect(try search("notas") == ["Contabilidad/Notas.txt"])
         #expect(try updates.pendingFiles(extensions: types, maxSize: 20_000_000, neverRead: .sensitiveDefaults).isEmpty)
     }
+
+    @Test func aNewlySupportedTypeOnlyQueuesThoseFiles() throws {
+        // Before PDF support: text files were read; PDFs were never looked at.
+        let names = try store.beginReplacing(share: "A", displayName: "Share")
+        try names.insert([file("Notas.txt"), file("Reglamento.pdf")])
+        try names.commit()
+        let updates = try store.beginContentUpdates(share: "A")
+        for candidate in try updates.pendingFiles(extensions: ["txt"], maxSize: 20_000_000) {
+            try updates.record(candidate, outcome: .indexed, text: "notas")
+        }
+
+        // After: only the PDF is new work.
+        let pending = try updates.pendingFiles(extensions: ["txt", "pdf"], maxSize: 20_000_000)
+        #expect(pending.map(\.relativePath) == ["Reglamento.pdf"])
+    }
 }
