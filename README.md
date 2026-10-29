@@ -34,6 +34,10 @@ See [docs/PRD.md](docs/PRD.md) for the full plan.
      indexed, problems), and for **Rescan Now**, **Settings…** and **Quit**. The icon
      pulses while indexing.
 
+To open a file type with a specific app (e.g. `.pdf` with Adobe Acrobat instead of Preview),
+add it in **Settings → Open With**. This only affects files opened from ServerFinder; types
+without a rule, and rules whose app was uninstalled, use the Mac's default app.
+
 Some files are left out on purpose: Windows system folders (`$RECYCLE.BIN`,
 `System Volume Information`), `Thumbs.db`, `desktop.ini` and Office lock files (`~$…`).
 Edit the list in **Settings → Excluded**; `*` and `?` work as wildcards, and a pattern with

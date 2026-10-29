@@ -4,6 +4,7 @@ import SwiftUI
 struct SettingsView: View {
     let model: AppModel
     let general: GeneralSettings
+    let openWith: OpenWithSettings
 
     var body: some View {
         TabView {
@@ -13,6 +14,9 @@ struct SettingsView: View {
             ExclusionsSettingsView(model: model)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .tabItem { Label("Excluded", systemImage: "eye.slash") }
+            OpenWithSettingsView(settings: openWith)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .tabItem { Label("Open With", systemImage: "arrow.up.forward.app") }
             GeneralSettingsView(model: model, settings: general)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .tabItem { Label("General", systemImage: "gearshape") }

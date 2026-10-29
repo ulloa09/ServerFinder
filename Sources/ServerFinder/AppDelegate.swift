@@ -4,7 +4,8 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate {
     private let model = AppModel()
-    private lazy var searchController = SearchController(model: model)
+    private let openWith = OpenWithSettings()
+    private lazy var searchController = SearchController(model: model, openWith: openWith)
     private let general = GeneralSettings()
     private lazy var shareMonitor = ShareMonitor(model: model)
 
@@ -273,7 +274,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private func showSettings() {
         hidePanel()
         if settingsWindow == nil {
-            let content = NSHostingController(rootView: SettingsView(model: model, general: general))
+            let content = NSHostingController(rootView: SettingsView(model: model, general: general, openWith: openWith))
             // The window keeps the size the user gives it; SwiftUI only sets the minimum.
             content.sizingOptions = [.minSize]
             let window = NSWindow(contentViewController: content)

@@ -24,8 +24,11 @@ final class SearchController {
 
     private var searchTask: Task<Void, Never>?
 
-    init(model: AppModel) {
+    private let openWith: OpenWithSettings
+
+    init(model: AppModel, openWith: OpenWithSettings) {
         self.model = model
+        self.openWith = openWith
     }
 
     var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -58,7 +61,7 @@ final class SearchController {
 
     func open(_ hit: SearchHit) -> Bool {
         guard isReachable(hit) else { return false }
-        NSWorkspace.shared.open(hit.url)
+        openWith.open(hit.url, isDirectory: hit.isDirectory)
         return true
     }
 

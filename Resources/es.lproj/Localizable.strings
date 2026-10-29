@@ -110,3 +110,16 @@
 "Once a day" = "Una vez al día";
 "Only when a folder connects" = "Solo cuando se conecta una carpeta";
 "Folders are also scanned when their server connects and when ServerFinder starts. Searching always works with the last list, even while scanning." = "Las carpetas también se indexan cuando su servidor se conecta y cuando ServerFinder se abre. La búsqueda siempre funciona con la última lista, incluso mientras se indexa.";
+
+/* Open With */
+"Open With" = "Abrir con";
+"Choose the app for each file type" = "Elige la app para cada tipo de archivo";
+"Files you open from ServerFinder use the app chosen here. Other types open with the Mac's default app. Finder isn't affected." = "Los archivos que abras desde ServerFinder usan la app elegida aquí. Los demás tipos se abren con la app predeterminada del Mac. Finder no se ve afectado.";
+"No rules yet: every file opens with the Mac's default app." = "Aún no hay reglas: todos los archivos se abren con la app predeterminada del Mac.";
+"File type, e.g. pdf" = "Tipo de archivo, p. ej. pdf";
+"Pick the app for .%@ from its menu." = "Elige la app para .%@ en su menú.";
+"Type just the file type, like pdf, docx or dwg." = "Escribe solo el tipo de archivo, como pdf, docx o dwg.";
+"Other…" = "Otra…";
+"App not found — using the Mac's default" = "App no encontrada: se usa la predeterminada del Mac";
+"Choose" = "Elegir";
+"Choose the app that should open .%@ files." = "Elige la app que debe abrir los archivos .%@.";
