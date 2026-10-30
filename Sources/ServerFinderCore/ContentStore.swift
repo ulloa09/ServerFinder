@@ -7,6 +7,8 @@ public enum ContentOutcome: String, Sendable, CaseIterable {
     case noText = "no_text"
     /// A PDF without a text layer, waiting for text recognition.
     case needsOCR = "needs_ocr"
+    /// A scanned PDF whose text was recognized from the page images.
+    case recognized
     /// Damaged, password-protected or otherwise unreadable.
     case failed
 }
@@ -159,13 +161,40 @@ public final class ContentUpdates {
         return candidates.sorted { $0.size < $1.size }
     }
 
-    /// Saves what reading `file` produced. `text` is stored only for ``ContentOutcome/indexed``.
+    /// Scanned PDFs waiting for text recognition, up to `maxSize` bytes and unchanged since they
+    /// were found to need it (changed files are read normally first), leaving out what
+    /// `neverRead` matches. Smallest first.
+    public func pendingScans(maxSize: Int64, neverRead: ExclusionRules = .none) throws -> [ContentCandidate] {
+        let statement = try connection.prepare("""
+            SELECT s.relative_path, s.size, s.modified
+            FROM content_state s
+            JOIN entries e ON e.share = s.share AND e.relative_path = s.relative_path
+            WHERE s.share = ?1 AND s.outcome = 'needs_ocr' AND s.size <= ?2
+              AND s.size IS e.size AND s.modified IS e.modified
+            """)
+        try statement.bind([.text(share), .int(maxSize)])
+        var candidates: [ContentCandidate] = []
+        while try statement.step() {
+            let path = statement.text(0)
+            guard !neverRead.excludesItemOrFolder(relativePath: path) else { continue }
+            candidates.append(ContentCandidate(
+                relativePath: path,
+                size: statement.int(1),
+                modifiedAt: statement.optionalDouble(2).map(Date.init(timeIntervalSince1970:))
+            ))
+        }
+        return candidates.sorted { $0.size < $1.size }
+    }
+
+    /// Saves what reading `file` produced. `text` is stored only for ``ContentOutcome/indexed``
+    /// and ``ContentOutcome/recognized``.
     public func record(_ file: ContentCandidate, outcome: ContentOutcome, text: String? = nil) throws {
         try connection.execute("BEGIN IMMEDIATE")
         do {
             try deleteContent(of: file.relativePath)
             var contentRowID: SQLValue = .null
-            if outcome == .indexed, let text, !text.isEmpty {
+            let keepsText = outcome == .indexed || outcome == .recognized
+            if keepsText, let text, !text.isEmpty {
                 let insert = try connection.prepare("INSERT INTO contents (text) VALUES (?)")
                 try insert.bind([.text(text)])
                 _ = try insert.step()
@@ -175,7 +204,7 @@ public final class ContentUpdates {
                 INSERT OR REPLACE INTO content_state (share, relative_path, size, modified, outcome, content_rowid)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """)
-            let finalOutcome = (outcome == .indexed && contentRowID == .null) ? ContentOutcome.noText : outcome
+            let finalOutcome = (keepsText && contentRowID == .null) ? ContentOutcome.noText : outcome
             try state.bind([
                 .text(share), .text(file.relativePath), .int(file.size),
                 file.modifiedAt.map { .double($0.timeIntervalSince1970) } ?? .null,

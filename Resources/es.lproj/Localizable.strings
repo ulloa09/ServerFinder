@@ -160,7 +160,7 @@
 "File types" = "Tipos de archivo";
 "Text, CSV and RTF" = "Texto, CSV y RTF";
 "Recognize text in scanned PDFs" = "Reconocer texto en PDF escaneados";
-"Slower (seconds per page). Spanish and English. Runs after everything else." = "Más lento (segundos por página). Español e inglés. Se hace después de todo lo demás.";
+"About a third of a second per page, up to 100 pages per document. Spanish and English. Runs after everything else, and pauses in Low Power Mode." = "Un tercio de segundo por página aprox., hasta 100 páginas por documento. Español e inglés. Se hace después de todo lo demás y se pausa en modo de bajo consumo.";
 "Largest file to read" = "Archivo más grande que se lee";
 "Progress" = "Progreso";
 "Content search is off." = "La búsqueda dentro de documentos está desactivada.";
@@ -168,7 +168,9 @@
 "All documents are up to date." = "Todos los documentos están al día.";
 "Searchable documents" = "Documentos buscables";
 "Without text" = "Sin texto";
-"Scanned PDFs" = "PDF escaneados";
+"Scanned PDFs recognized" = "PDF escaneados reconocidos";
+"Scanned PDFs waiting for recognition" = "PDF escaneados por reconocer";
+"Scanned PDFs not recognized" = "PDF escaneados sin reconocer";
 "Couldn't be read" = "No se pudieron leer";
 "Erase Stored Document Text…" = "Borrar el texto guardado de los documentos…";
 "Erase the stored text of all documents from this Mac? File names stay searchable. If content search is on, documents are read again from the start." = "¿Borrar de este Mac el texto guardado de todos los documentos? Los nombres de archivo se siguen pudiendo buscar. Si la búsqueda dentro de documentos está activada, los documentos se vuelven a leer desde el principio.";
@@ -177,3 +179,7 @@
 "Files you list under Excluded → Never read the contents of are never read." = "Los archivos que pongas en Excluidos → Nunca leer el contenido de nunca se leen.";
 "%@ documents searchable" = "%@ documentos buscables";
 "%@ couldn't be read" = "%@ no se pudieron leer";
+
+/* Text recognition (OCR) */
+"Recognizing text in scanned PDFs in “%@”… %@ of %@" = "Reconociendo texto en PDF escaneados de “%1$@”… %2$@ de %3$@";
+"Recognizing text in scanned PDFs… %@ of %@" = "Reconociendo texto en PDF escaneados… %1$@ de %2$@";

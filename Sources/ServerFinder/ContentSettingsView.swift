@@ -31,7 +31,7 @@ struct ContentSettingsView: View {
                 Toggle(isOn: binding(\.recognizesScans)) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Recognize text in scanned PDFs")
-                        Text("Slower (seconds per page). Spanish and English. Runs after everything else.")
+                        Text("About a third of a second per page, up to 100 pages per document. Spanish and English. Runs after everything else, and pauses in Low Power Mode.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -81,7 +81,7 @@ struct ContentSettingsView: View {
         let totals = model.totalContentCounts
         if let reading = model.contentProgress, reading.total > 0 {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Reading documents in “\(reading.folderName)”… \(reading.done.formatted()) of \(reading.total.formatted())")
+                Text(model.contentStatusText ?? "")
                 ProgressView(value: Double(reading.done), total: Double(reading.total))
             }
         } else if !settings.isEnabled {
@@ -94,9 +94,13 @@ struct ContentSettingsView: View {
             Text("All documents are up to date.")
         }
         if !totals.isEmpty {
-            LabeledContent("Searchable documents", value: (totals[.indexed] ?? 0).formatted())
+            LabeledContent("Searchable documents", value: totals.searchable.formatted())
             LabeledContent("Without text", value: (totals[.noText] ?? 0).formatted())
-            LabeledContent("Scanned PDFs", value: (totals[.needsOCR] ?? 0).formatted())
+            LabeledContent("Scanned PDFs recognized", value: (totals[.recognized] ?? 0).formatted())
+            LabeledContent(
+                settings.readsScans ? "Scanned PDFs waiting for recognition" : "Scanned PDFs not recognized",
+                value: (totals[.needsOCR] ?? 0).formatted()
+            )
             LabeledContent("Couldn't be read", value: (totals[.failed] ?? 0).formatted())
         }
     }

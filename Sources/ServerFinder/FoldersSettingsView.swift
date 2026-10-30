@@ -234,7 +234,7 @@ private struct FolderRow: View {
                 Text("Updated \(lastIndexed.formatted(.relative(presentation: .named)))")
                     .foregroundStyle(.secondary)
                 if let documents = model.contentCounts[folder.id], !documents.isEmpty {
-                    Text("\((documents[.indexed] ?? 0).formatted()) documents searchable")
+                    Text("\(documents.searchable.formatted()) documents searchable")
                         .foregroundStyle(.secondary)
                     if let failed = documents[.failed], failed > 0 {
                         Text("\(failed.formatted()) couldn't be read")

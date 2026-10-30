@@ -203,4 +203,65 @@ import Testing
         let pending = try updates.pendingFiles(extensions: ["txt", "pdf"], maxSize: 20_000_000)
         #expect(pending.map(\.relativePath) == ["Reglamento.pdf"])
     }
+
+    // MARK: Scanned PDFs
+
+    /// Indexes names, then "reads" each file, finding every PDF to be a scan.
+    private func indexScans(_ files: [FileRecord]) throws -> ContentUpdates {
+        let names = try store.beginReplacing(share: "A", displayName: "Share")
+        try names.insert(files)
+        try names.commit()
+        let updates = try store.beginContentUpdates(share: "A")
+        for candidate in try updates.pendingFiles(extensions: types, maxSize: 20_000_000) {
+            let isPDF = candidate.relativePath.hasSuffix(".pdf")
+            try updates.record(candidate, outcome: isPDF ? .needsOCR : .indexed, text: isPDF ? nil : "texto")
+        }
+        return updates
+    }
+
+    @Test func scansWaitForRecognitionSmallestFirst() throws {
+        let updates = try indexScans([
+            file("Grande.pdf", size: 5_000), file("Chico.pdf", size: 10), file("Notas.txt"),
+            file("Enorme.pdf", size: 30_000_000),
+        ])
+
+        #expect(try updates.pendingScans(maxSize: 20_000_000).map(\.relativePath) == ["Chico.pdf", "Grande.pdf"])
+    }
+
+    @Test func recognizedScansAreSearchableAndDone() throws {
+        let updates = try indexScans([file("Acta.pdf")])
+        let scan = try #require(try updates.pendingScans(maxSize: 20_000_000).first)
+        try updates.record(scan, outcome: .recognized, text: "Acta de nacimiento")
+
+        #expect(try search("nacimiento") == ["Acta.pdf"])
+        #expect(try store.contentCounts(share: "A") == [.recognized: 1])
+        #expect(try updates.pendingScans(maxSize: 20_000_000).isEmpty)
+        #expect(try updates.pendingFiles(extensions: types, maxSize: 20_000_000).isEmpty, "not read again until it changes")
+    }
+
+    @Test func aScanWithoutRecognizedTextIsNotRetried() throws {
+        let updates = try indexScans([file("Firma.pdf")])
+        let scan = try #require(try updates.pendingScans(maxSize: 20_000_000).first)
+        try updates.record(scan, outcome: .recognized, text: "")
+
+        #expect(try store.contentCounts(share: "A") == [.noText: 1])
+        #expect(try updates.pendingScans(maxSize: 20_000_000).isEmpty)
+    }
+
+    @Test func aChangedScanIsReadNormallyBeforeRecognition() throws {
+        let updates = try indexScans([file("Oficio.pdf", modified: 1_000)])
+        let names = try store.beginReplacing(share: "A", displayName: "Share")
+        try names.insert([file("Oficio.pdf", modified: 2_000)])
+        try names.commit()
+
+        #expect(try updates.pendingScans(maxSize: 20_000_000).isEmpty)
+        #expect(try updates.pendingFiles(extensions: types, maxSize: 20_000_000).map(\.relativePath) == ["Oficio.pdf"])
+    }
+
+    @Test func neverReadScansAreNotRecognized() throws {
+        let updates = try indexScans([file("Claves/banco.pdf"), file("Oficio.pdf")])
+
+        let pending = try updates.pendingScans(maxSize: 20_000_000, neverRead: .sensitiveDefaults)
+        #expect(pending.map(\.relativePath) == ["Oficio.pdf"])
+    }
 }

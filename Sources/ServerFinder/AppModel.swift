@@ -7,6 +7,8 @@ struct ContentProgress: Equatable {
     var folderName: String
     var done: Int
     var total: Int
+    /// Recognizing text in scanned PDFs, rather than reading documents.
+    var isRecognizing = false
 }
 
 struct ScanOutcome {
@@ -72,6 +74,8 @@ final class AppModel {
     /// Reading document contents runs after name scans, one folder at a time.
     private(set) var contentProgress: ContentProgress?
     private var contentQueue: [UUID] = []
+    /// Folders whose scanned PDFs wait for text recognition; runs only when nothing else is read.
+    private var recognitionQueue: [UUID] = []
     private var contentTask: Task<Void, Never>?
     /// What to read, and whether to read at all (Settings → Contents).
     private(set) var contentSettings: ContentSettings {
@@ -142,6 +146,7 @@ final class AppModel {
         unreadableFolders[folder.id] = nil
         if currentScan?.folderID == folder.id { scanTask?.cancel() }
         contentQueue.removeAll { $0 == folder.id }
+        recognitionQueue.removeAll { $0 == folder.id }
         if contentProgress?.folderID == folder.id { contentTask?.cancel() }
         guard let store else { return }
         Task.detached(priority: .utility) {
@@ -217,14 +222,20 @@ final class AppModel {
         guard new.isEnabled else {
             // Stop reading; the text read so far is kept for when it's turned back on.
             contentQueue.removeAll()
+            recognitionQueue.removeAll()
             contentTask?.cancel()
             indexVersion += 1
             return
         }
+        if !new.readsScans {
+            // Recognized text stays; only the remaining scans wait.
+            recognitionQueue.removeAll()
+            if contentProgress?.isRecognizing == true { contentTask?.cancel() }
+        }
         if new.kinds != old.kinds {
             // Drop text of types turned off right away, then read types turned on.
             removeNeverReadContents { [weak self] in self?.readContentsOfConnectedFolders() }
-        } else if !old.isEnabled || new.maxSizeMB > old.maxSizeMB {
+        } else if !old.isEnabled || new.maxSizeMB > old.maxSizeMB || (new.readsScans && !old.readsScans) {
             readContentsOfConnectedFolders()
         }
         indexVersion += 1
@@ -235,6 +246,7 @@ final class AppModel {
     func eraseAllContents() {
         guard let store else { return }
         contentQueue.removeAll()
+        recognitionQueue.removeAll()
         contentTask?.cancel()
         Task.detached(priority: .userInitiated) { [weak self] in
             for attempt in 1...60 {
@@ -329,6 +341,7 @@ final class AppModel {
             queuedScans.removeAll { $0 == folder.id }
             if currentScan?.folderID == folder.id { scanTask?.cancel() }
             contentQueue.removeAll { $0 == folder.id }
+            recognitionQueue.removeAll { $0 == folder.id }
             if contentProgress?.folderID == folder.id { contentTask?.cancel() }
         }
     }
@@ -442,9 +455,22 @@ final class AppModel {
     // MARK: Reading contents
 
     private func enqueueContentReading(of folderID: UUID) {
-        guard contentSettings.isEnabled,
-              contentProgress?.folderID != folderID, !contentQueue.contains(folderID) else { return }
+        guard contentSettings.isEnabled, !contentQueue.contains(folderID) else { return }
+        if let current = contentProgress {
+            if current.isRecognizing {
+                // Normal reading goes first; recognition picks up again afterwards.
+                contentTask?.cancel()
+            } else if current.folderID == folderID {
+                return
+            }
+        }
         contentQueue.append(folderID)
+        startNextContentReadingIfIdle()
+    }
+
+    private func enqueueRecognition(of folderID: UUID) {
+        guard contentSettings.readsScans, !recognitionQueue.contains(folderID) else { return }
+        recognitionQueue.append(folderID)
         startNextContentReadingIfIdle()
     }
 
@@ -467,6 +493,25 @@ final class AppModel {
                     finishedNormally = false
                 }
                 await self?.contentReadingFinished(folder, completed: finishedNormally)
+            }
+            return
+        }
+        while !recognitionQueue.isEmpty {
+            let folderID = recognitionQueue.removeFirst()
+            guard contentSettings.readsScans,
+                  let folder = folders.first(where: { $0.id == folderID }), folder.isConnected else { continue }
+            contentProgress = ContentProgress(folderID: folder.id, folderName: folder.name, done: 0, total: 0, isRecognizing: true)
+            let neverRead = neverRead
+            let settings = contentSettings
+            contentTask = Task.detached(priority: .background) { [weak self] in
+                let finishedNormally: Bool
+                do {
+                    try await Self.recognizeScans(of: folder, store: store, settings: settings, neverRead: neverRead, model: self)
+                    finishedNormally = true
+                } catch {
+                    finishedNormally = false
+                }
+                await self?.recognitionFinished(folder, completed: finishedNormally)
             }
             return
         }
@@ -515,6 +560,46 @@ final class AppModel {
         }
     }
 
+    /// Recognizes the text of `folder`'s scanned PDFs, saving each one as it goes. Waits while a
+    /// name scan runs, in Low Power Mode or when the Mac is hot; stops (throwing) if cancelled
+    /// or if the share disappears.
+    private nonisolated static func recognizeScans(
+        of folder: IndexedFolder, store: IndexStore, settings: ContentSettings, neverRead: ExclusionRules, model: AppModel?
+    ) async throws {
+        let updates = try store.beginContentUpdates(share: folder.shareKey)
+        let pending = try updates.pendingScans(maxSize: settings.maxSize, neverRead: neverRead)
+        await model?.contentMadeProgress(done: 0, total: pending.count, becameSearchable: false)
+
+        for (index, file) in pending.enumerated() {
+            try Task.checkCancellation()
+            while await model?.isNameScanRunning == true || shouldPauseRecognition {
+                try await Task.sleep(for: .seconds(5))
+            }
+            let url = folder.url.appendingPathComponent(file.relativePath)
+            do {
+                let text = try OCRReader.text(ofScannedPDF: url)
+                try updates.record(file, outcome: .recognized, text: text)
+            } catch let error as ExtractionError {
+                guard FileManager.default.fileExists(atPath: folder.path) else { throw error }
+                try updates.record(file, outcome: .failed)
+            } catch {
+                guard FileManager.default.fileExists(atPath: folder.path) else { throw error }
+                if (error as NSError).domain == NSCocoaErrorDomain {
+                    try updates.record(file, outcome: .failed)
+                } else {
+                    throw error // cancelled, or database trouble: retry on a later pass
+                }
+            }
+            await model?.contentMadeProgress(done: index + 1, total: pending.count, becameSearchable: true)
+        }
+    }
+
+    /// Text recognition keeps several cores busy; leave the Mac alone when it's saving power or hot.
+    private nonisolated static var shouldPauseRecognition: Bool {
+        let info = ProcessInfo.processInfo
+        return info.isLowPowerModeEnabled || info.thermalState == .serious || info.thermalState == .critical
+    }
+
     private func contentMadeProgress(done: Int, total: Int, becameSearchable: Bool) {
         contentProgress?.done = done
         contentProgress?.total = total
@@ -526,6 +611,19 @@ final class AppModel {
         contentProgress = nil
         indexVersion += 1
         refreshContentCounts()
+        if completed { enqueueRecognition(of: folder.id) }
+        startNextContentReadingIfIdle()
+    }
+
+    private func recognitionFinished(_ folder: IndexedFolder, completed: Bool) {
+        contentTask = nil
+        contentProgress = nil
+        indexVersion += 1
+        refreshContentCounts()
+        // Interrupted to let normal reading go first: try again afterwards.
+        if !completed, !contentQueue.isEmpty, folders.contains(where: { $0.id == folder.id }) {
+            enqueueRecognition(of: folder.id)
+        }
         startNextContentReadingIfIdle()
     }
 
@@ -563,6 +661,9 @@ final class AppModel {
         }
         if isQueued(folder) { return String(localized: "Waiting to index…") }
         if let reading = contentProgress, reading.folderID == folder.id, reading.total > 0 {
+            if reading.isRecognizing {
+                return String(localized: "Recognizing text in scanned PDFs… \(reading.done.formatted()) of \(reading.total.formatted())")
+            }
             return String(localized: "Reading documents… \(reading.done.formatted()) of \(reading.total.formatted())")
         }
         if let error = scanErrors[folder.id] { return error }
@@ -572,6 +673,15 @@ final class AppModel {
             detail += " · " + String(localized: "\(unreadable.count) folders couldn't be read")
         }
         return detail
+    }
+
+    /// What document reading is doing, while it runs.
+    var contentStatusText: String? {
+        guard let reading = contentProgress, reading.total > 0 else { return nil }
+        if reading.isRecognizing {
+            return String(localized: "Recognizing text in scanned PDFs in “\(reading.folderName)”… \(reading.done.formatted()) of \(reading.total.formatted())")
+        }
+        return String(localized: "Reading documents in “\(reading.folderName)”… \(reading.done.formatted()) of \(reading.total.formatted())")
     }
 
     /// A one-line summary for the search panel and the menu.
@@ -586,9 +696,7 @@ final class AppModel {
             }
             return String(localized: "Indexing “\(scan.folderName)”… \(found) items found · \(queuedScans.count) in queue")
         }
-        if let reading = contentProgress, reading.total > 0 {
-            return String(localized: "Reading documents in “\(reading.folderName)”… \(reading.done.formatted()) of \(reading.total.formatted())")
-        }
+        if let contentStatusText { return contentStatusText }
         if folders.isEmpty {
             return String(localized: "No folders selected yet")
         }
@@ -621,6 +729,11 @@ enum ExclusionStorage {
 }
 
 /// Settings → Contents. Saved in the user's preferences.
+extension Dictionary where Key == ContentOutcome, Value == Int {
+    /// Documents with text that can be searched: read normally or recognized from scans.
+    var searchable: Int { (self[.indexed] ?? 0) + (self[.recognized] ?? 0) }
+}
+
 struct ContentSettings: Codable, Equatable {
     var isEnabled = true
     var kinds: Set<DocumentKind> = Set(DocumentKind.allCases)
@@ -632,6 +745,7 @@ struct ContentSettings: Codable, Equatable {
 
     var extensions: Set<String> { DocumentKind.extensions(of: kinds) }
     var maxSize: Int64 { Int64(maxSizeMB) * 1_024 * 1_024 }
+    var readsScans: Bool { isEnabled && recognizesScans && kinds.contains(.pdf) }
 
     private static let key = "contentSettings"
 
