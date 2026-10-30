@@ -11,7 +11,7 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin_dir/ServerFinder" "$app/Contents/MacOS/"
 cp Resources/Info.plist "$app/Contents/"
-cp -R Resources/*.lproj "$app/Contents/Resources/"
+cp -R Resources/*.lproj Resources/*.icns "$app/Contents/Resources/"
 # Ad-hoc signature: enough to run on this Mac.
 codesign --force --sign - "$app"
 echo "Built $app"

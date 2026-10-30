@@ -11,6 +11,9 @@ struct IndexedFolder: Codable, Identifiable, Hashable {
     var serverAddress: ServerAddress?
     /// Its path inside that shared folder ("" for the whole share).
     var pathInShare: String?
+    /// The share's address as macOS mounted it (user name included, never a password),
+    /// used to connect again when it isn't mounted.
+    var mountURL: URL?
 
     var isConnected: Bool { FileManager.default.fileExists(atPath: path) }
 
@@ -44,6 +47,7 @@ enum ServerVolumes {
     struct Location {
         var address: ServerAddress
         var pathInShare: String
+        var mountURL: URL
     }
 
     /// Network volumes mounted right now.
@@ -75,6 +79,12 @@ enum ServerVolumes {
         else { return nil }
         let volumePath = volume.path.hasSuffix("/") ? volume.path : volume.path + "/"
         let inShare = path.hasPrefix(volumePath) ? String(path.dropFirst(volumePath.count)) : ""
-        return Location(address: address, pathInShare: inShare)
+        return Location(address: address, pathInShare: inShare, mountURL: withoutPassword(values.volumeURLForRemounting!))
+    }
+
+    private static func withoutPassword(_ url: URL) -> URL {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        components.password = nil
+        return components.url ?? url
     }
 }

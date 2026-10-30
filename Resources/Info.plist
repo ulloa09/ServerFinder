@@ -8,6 +8,8 @@
 	<string>ServerFinder</string>
 	<key>CFBundleExecutable</key>
 	<string>ServerFinder</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.ulloa09.ServerFinder</string>
 	<key>CFBundleInfoDictionaryVersion</key>

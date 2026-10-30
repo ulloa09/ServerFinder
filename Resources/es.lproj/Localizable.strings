@@ -183,3 +183,9 @@
 /* Text recognition (OCR) */
 "Recognizing text in scanned PDFs in “%@”… %@ of %@" = "Reconociendo texto en PDF escaneados de “%1$@”… %2$@ de %3$@";
 "Recognizing text in scanned PDFs… %@ of %@" = "Reconociendo texto en PDF escaneados… %1$@ de %2$@";
+
+/* Offline results (#11) */
+"Offline" = "Sin conexión";
+"This folder's server isn't connected. Opening it connects first." = "El servidor de esta carpeta no está conectado. Al abrirlo, primero se conecta.";
+"Connecting to “%@”…" = "Conectando a “%@”…";
+"Couldn't connect to “%@”. Check that this Mac is on the office network (or VPN), then try again." = "No se pudo conectar a “%@”. Revisa que esta Mac esté en la red de la oficina (o VPN) e inténtalo de nuevo.";

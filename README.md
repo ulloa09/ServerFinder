@@ -1,12 +1,15 @@
+<p align="center"><img src="docs/logo.png" width="160" alt="ServerFinder icon"></p>
+
 # ServerFinder
 
-Find files on your office server instantly, by name.
+Find files on your office server instantly, by name or by the words inside them.
 
 Finder can't search shared server folders (SMB) well: Spotlight doesn't index network
 volumes, so searches come back empty or take forever. ServerFinder keeps its own list of
 the file names on the folders you choose, on your Mac, and searches that list as you type.
 
-It only reads file names. It never changes, moves or deletes anything on the server.
+It only reads: file names and, optionally, the text of documents. It never changes, moves or
+deletes anything on the server, and everything it reads stays on your Mac.
 
 See [docs/PRD.md](docs/PRD.md) for the full plan.
 
@@ -66,6 +69,11 @@ mid-scan keeps the previous list. **Rescan Now** refreshes everything right away
 mounts a share under a different name (e.g. `Projects-1`), ServerFinder still recognizes it.
 On a folder's first scan, results appear while it's still indexing.
 
+Searching works away from the office too: results come from the last scan, and those whose
+server isn't connected are greyed out and marked **Offline**. Opening one (or showing it in
+Finder) connects to the server first, asking for the password if macOS doesn't have it saved,
+and then opens the file.
+
 The app follows your Mac's language (Spanish or English).
 
 ## Building
@@ -77,6 +85,7 @@ Command Line Tools: `xcode-select --install`).
 scripts/build-app.sh            # builds build/ServerFinder.app
 scripts/build-app.sh --install  # also copies it to /Applications
 scripts/test.sh                 # runs the tests
+scripts/make-icons.sh           # redraws the icons from scripts/make-icon.swift
 ```
 
 During development, `swift run ServerFinder` starts the app without bundling it (in English,

@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.make(target: self)
+        AppIcon.followAppearance()
         setUpStatusItem()
         panel = SearchPanel(rootView: SearchView(
             controller: searchController,
@@ -35,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             onDidOpen: { [weak self] in self?.hidePanel() }
         ))
         panel.delegate = self
+        searchController.onDidOpenLater = { [weak self] in self?.hidePanel() }
         panel.previewURL = { [weak self] in
             guard let self, let hit = self.searchController.selectedHit else { return nil }
             return hit.url

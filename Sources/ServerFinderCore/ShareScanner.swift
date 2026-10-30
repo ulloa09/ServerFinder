@@ -27,19 +27,28 @@ public struct ScanBatch: Sendable {
 /// fails the scan, so an incomplete list never replaces a complete one.
 public struct ShareScanner: Sendable {
     public var batchSize: Int
+    /// How many folders are listed at the same time.
+    public var concurrency: Int
 
-    public init(batchSize: Int = 500) {
+    /// Chosen from timings over Wi-Fi to a Windows Server share (see issue #10).
+    public static let defaultConcurrency = 8
+
+    public init(batchSize: Int = 500, concurrency: Int = defaultConcurrency) {
         self.batchSize = batchSize
+        self.concurrency = concurrency
     }
 
     /// Scans `root` on a background thread, leaving out what `exclusions` matches.
     /// Cancelling the consuming task stops the scan.
     public func scan(root: URL, exclusions: ExclusionRules = .none) -> AsyncThrowingStream<ScanBatch, any Error> {
         let batchSize = batchSize
+        let concurrency = concurrency
         return AsyncThrowingStream { continuation in
             let task = Task.detached(priority: .utility) {
                 do {
-                    try Self.walk(root: root, exclusions: exclusions, batchSize: batchSize) { continuation.yield($0) }
+                    try Self.walk(root: root, exclusions: exclusions, batchSize: batchSize, concurrency: concurrency) {
+                        continuation.yield($0)
+                    }
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -50,7 +59,7 @@ public struct ShareScanner: Sendable {
     }
 
     private static let resourceKeys: [URLResourceKey] = [
-        .nameKey, .isDirectoryKey, .fileSizeKey, .contentModificationDateKey,
+        .nameKey, .isDirectoryKey, .isPackageKey, .fileSizeKey, .contentModificationDateKey,
     ]
 
     /// Errors that mean the server is gone, as opposed to one folder being off-limits.
@@ -59,71 +68,89 @@ public struct ShareScanner: Sendable {
         EHOSTDOWN, EHOSTUNREACH,
     ]
 
+    /// Walks the tree, listing up to `concurrency` folders at once: over the network each
+    /// listing mostly waits for the server, so several in flight hide that wait. Everything
+    /// else (filtering, batching, `emit`) happens on the calling thread.
     static func walk(
-        root: URL, exclusions: ExclusionRules = .none, batchSize: Int, emit: (ScanBatch) -> Void
+        root: URL, exclusions: ExclusionRules = .none, batchSize: Int, concurrency: Int = defaultConcurrency,
+        emit: (ScanBatch) -> Void
     ) throws {
         let root = root.standardizedFileURL
         guard isFolder(root) else { throw ScanError.rootUnavailable(path: root.path) }
 
-        let problems = ProblemLog(root: root)
-        guard let enumerator = FileManager.default.enumerator(
-            at: root,
-            includingPropertiesForKeys: resourceKeys,
-            options: [.skipsHiddenFiles, .skipsPackageDescendants],
-            errorHandler: { url, error in
-                // Other errors (e.g. EIO) can come from one bad item or from a lost share:
-                // the root folder still being there tells them apart.
-                if connectionErrors.contains(posixCode(of: error)) || !isFolder(root) {
-                    problems.connectionLost = true
-                    return false // stop: everything after this would be missing
-                }
-                problems.unreadable(url)
-                return true
-            }
-        ) else {
-            throw ScanError.rootUnavailable(path: root.path)
-        }
-
-        let keySet = Set(resourceKeys)
+        let listings = ListingQueue()
+        let queue = DispatchQueue(label: "ShareScanner.listing", qos: .utility, attributes: .concurrent)
+        // Folders waiting to be listed, by path relative to the root ("" is the root).
+        var waiting: [String] = [""]
+        var inFlight = 0
         var batch: [FileRecord] = []
         batch.reserveCapacity(batchSize)
-        // Names of the folders above the current item, by depth. Building relative paths from
-        // these avoids comparing path prefixes, which differ for symlinked roots (/var vs /private/var).
-        var ancestors: [String] = []
+        var unreadable: [String] = []
 
         func flush() {
-            let unreadable = problems.takeUnreadable()
             guard !batch.isEmpty || !unreadable.isEmpty else { return }
             emit(ScanBatch(records: batch, unreadableFolders: unreadable))
             batch.removeAll(keepingCapacity: true)
+            unreadable.removeAll()
         }
 
-        for case let url as URL in enumerator {
+        while !waiting.isEmpty || inFlight > 0 {
             try Task.checkCancellation()
-            guard let values = try? url.resourceValues(forKeys: keySet) else { continue }
-            let name = values.name ?? url.lastPathComponent
-            let isDirectory = values.isDirectory ?? false
-            ancestors.removeSubrange(min(enumerator.level - 1, ancestors.count)...)
-            let relativePath = (ancestors + [name]).joined(separator: "/")
-            if exclusions.excludes(name: name, relativePath: relativePath) {
-                if isDirectory { enumerator.skipDescendants() }
+            while inFlight < max(concurrency, 1), let folder = waiting.popLast() {
+                inFlight += 1
+                let url = folder.isEmpty ? root : root.appendingPathComponent(folder, isDirectory: true)
+                queue.async {
+                    let result = Result {
+                        try FileManager.default.contentsOfDirectory(
+                            at: url, includingPropertiesForKeys: resourceKeys, options: [.skipsHiddenFiles]
+                        )
+                    }
+                    listings.deliver(Listing(folder: folder, result: result))
+                }
+            }
+            let listing = listings.next()
+            inFlight -= 1
+
+            let children: [URL]
+            switch listing.result {
+            case .success(let urls):
+                children = urls
+            case .failure(let error):
+                // Other errors (e.g. EIO) can come from one bad folder or from a lost share:
+                // the root folder still being there tells them apart.
+                if connectionErrors.contains(posixCode(of: error)) || !isFolder(root) {
+                    throw ScanError.connectionLost(path: root.path)
+                }
+                if listing.folder.isEmpty { throw ScanError.rootUnavailable(path: root.path) }
+                unreadable.append(listing.folder)
                 continue
             }
-            if isDirectory { ancestors.append(name) }
-            batch.append(FileRecord(
-                relativePath: relativePath,
-                name: name,
-                isDirectory: isDirectory,
-                size: isDirectory ? 0 : Int64(values.fileSize ?? 0),
-                modifiedAt: values.contentModificationDate
-            ))
-            if batch.count >= batchSize { flush() }
+
+            let keySet = Set(resourceKeys)
+            for url in children {
+                try Task.checkCancellation()
+                guard let values = try? url.resourceValues(forKeys: keySet) else { continue }
+                let name = values.name ?? url.lastPathComponent
+                let isDirectory = values.isDirectory ?? false
+                let relativePath = listing.folder.isEmpty ? name : listing.folder + "/" + name
+                if exclusions.excludes(name: name, relativePath: relativePath) { continue }
+                // Packages (e.g. .app, .rtfd) are listed as one item, without their contents.
+                if isDirectory && values.isPackage != true { waiting.append(relativePath) }
+                batch.append(FileRecord(
+                    relativePath: relativePath,
+                    name: name,
+                    isDirectory: isDirectory,
+                    size: isDirectory ? 0 : Int64(values.fileSize ?? 0),
+                    modifiedAt: values.contentModificationDate
+                ))
+                if batch.count >= batchSize { flush() }
+            }
         }
         try Task.checkCancellation()
 
-        // If the share disappeared mid-scan (unmounted, Wi-Fi dropped), the walk may have ended
-        // early without a clear error. Don't let a partial list pass as complete.
-        if problems.connectionLost || !isFolder(root) {
+        // If the share disappeared mid-scan (unmounted, Wi-Fi dropped), listings may have
+        // ended early without a clear error. Don't let a partial list pass as complete.
+        if !isFolder(root) {
             throw ScanError.connectionLost(path: root.path)
         }
         flush()
@@ -144,26 +171,29 @@ public struct ShareScanner: Sendable {
     }
 }
 
-/// Collects problems reported by the directory enumerator while it walks.
-private final class ProblemLog {
-    private let rootPaths: [String]
-    private var pendingUnreadable: [String] = []
-    var connectionLost = false
+/// One folder's contents, or why it couldn't be listed.
+private struct Listing: @unchecked Sendable {
+    let folder: String
+    let result: Result<[URL], any Error>
+}
 
-    init(root: URL) {
-        // The enumerator may report either spelling of a symlinked root (/var vs /private/var).
-        rootPaths = Set([root.path, root.resolvingSymlinksInPath().path, "/private" + root.path])
-            .map { $0.hasSuffix("/") ? $0 : $0 + "/" }
+/// Hands finished listings from the listing threads to the walk.
+private final class ListingQueue: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var done: [Listing] = []
+
+    func deliver(_ listing: Listing) {
+        condition.lock()
+        done.append(listing)
+        condition.signal()
+        condition.unlock()
     }
 
-    func unreadable(_ url: URL) {
-        let path = url.standardizedFileURL.path
-        let relative = rootPaths.first(where: path.hasPrefix).map { String(path.dropFirst($0.count)) } ?? path
-        pendingUnreadable.append(relative)
-    }
-
-    func takeUnreadable() -> [String] {
-        defer { pendingUnreadable.removeAll() }
-        return pendingUnreadable
+    /// Waits for the next finished listing.
+    func next() -> Listing {
+        condition.lock()
+        defer { condition.unlock() }
+        while done.isEmpty { condition.wait() }
+        return done.removeFirst()
     }
 }

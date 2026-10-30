@@ -29,6 +29,8 @@ struct SearchHit: Identifiable, Hashable {
 
     /// For matches inside the file: the matching passage (see ``ContentResult/snippet``).
     var snippet: String?
+    /// Its share wasn't mounted when the search ran; the result comes from the last scan.
+    var isOffline = false
 
     var id: String { result.share + "/" + result.relativePath }
     var name: String { result.name }
@@ -333,6 +335,20 @@ final class AppModel {
         }
     }
 
+    /// Connects to the share `folder` is on, then returns where the folder is now.
+    /// Throws ``ShareMounter/Failure`` when the share can't be reached or the login is cancelled.
+    func connect(_ folder: IndexedFolder) async throws -> IndexedFolder {
+        guard let mountURL = folders.first(where: { $0.id == folder.id })?.mountURL else {
+            throw ShareMounter.Failure(isCancelled: false)
+        }
+        try await ShareMounter.mount(mountURL)
+        updateFolderLocations()
+        guard let current = folders.first(where: { $0.id == folder.id }), current.isConnected else {
+            throw ShareMounter.Failure(isCancelled: false)
+        }
+        return current
+    }
+
     /// A share is going away: stop scanning it, keeping the list from its last complete scan.
     func volumeWillUnmount(at volume: URL) {
         let volumePath = volume.standardizedFileURL.path
@@ -353,9 +369,11 @@ final class AppModel {
         for index in folders.indices {
             var folder = folders[index]
             if folder.isConnected {
-                guard folder.serverAddress == nil, let location = ServerVolumes.location(of: folder.path) else { continue }
+                guard folder.serverAddress == nil || folder.mountURL == nil,
+                      let location = ServerVolumes.location(of: folder.path) else { continue }
                 folder.serverAddress = location.address
                 folder.pathInShare = location.pathInShare
+                folder.mountURL = location.mountURL
             } else {
                 guard let address = folder.serverAddress else { continue }
                 mounted = mounted ?? ServerVolumes.mounted()
@@ -635,8 +653,9 @@ final class AppModel {
             (try? store.search(query)) ?? []
         }.value
         let foldersByKey = Dictionary(uniqueKeysWithValues: folders.map { ($0.shareKey, $0) })
+        let offline = offlineFolderIDs
         return results.compactMap { result in
-            foldersByKey[result.share].map { SearchHit(result: result, folder: $0) }
+            foldersByKey[result.share].map { SearchHit(result: result, folder: $0, isOffline: offline.contains($0.id)) }
         }
     }
 
@@ -647,9 +666,16 @@ final class AppModel {
             (try? store.searchContent(query)) ?? []
         }.value
         let foldersByKey = Dictionary(uniqueKeysWithValues: folders.map { ($0.shareKey, $0) })
+        let offline = offlineFolderIDs
         return results.compactMap { match in
-            foldersByKey[match.result.share].map { SearchHit(result: match.result, folder: $0, snippet: match.snippet) }
+            foldersByKey[match.result.share].map {
+                SearchHit(result: match.result, folder: $0, snippet: match.snippet, isOffline: offline.contains($0.id))
+            }
         }
+    }
+
+    private var offlineFolderIDs: Set<UUID> {
+        Set(folders.filter { !$0.isConnected }.map(\.id))
     }
 
     // MARK: Status

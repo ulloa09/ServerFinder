@@ -33,6 +33,9 @@ final class SearchController {
     private(set) var focusRequest = 0
 
     private var searchTask: Task<Void, Never>?
+    /// Called when an item opens after its share was connected first (the panel can close then).
+    var onDidOpenLater: (() -> Void)?
+    private var connectTask: Task<Void, Never>?
 
     private let openWith: OpenWithSettings
 
@@ -79,16 +82,47 @@ final class SearchController {
     }
 
     func open(_ hit: SearchHit) -> Bool {
-        guard isReachable(hit) else { return false }
-        openWith.open(hit.url, isDirectory: hit.isDirectory)
-        return true
+        perform(on: hit) { [openWith] url in openWith.open(url, isDirectory: hit.isDirectory) }
     }
 
     /// Shows the item selected in a Finder window. Returns `true` when the panel can close.
     func revealInFinder(_ hit: SearchHit) -> Bool {
+        perform(on: hit) { url in NSWorkspace.shared.activateFileViewerSelecting([url]) }
+    }
+
+    /// Runs `action` on the item now if it's reachable (returning `true`). If its share isn't
+    /// connected, connects first and runs `action` afterwards (returning `false`).
+    private func perform(on hit: SearchHit, _ action: @escaping (URL) -> Void) -> Bool {
+        if !FileManager.default.fileExists(atPath: hit.folder.path), hit.folder.mountURL != nil {
+            connectThenPerform(on: hit, action)
+            return false
+        }
         guard isReachable(hit) else { return false }
-        NSWorkspace.shared.activateFileViewerSelecting([hit.url])
+        action(hit.url)
         return true
+    }
+
+    private func connectThenPerform(on hit: SearchHit, _ action: @escaping (URL) -> Void) {
+        guard connectTask == nil else { return }
+        notice = String(localized: "Connecting to “\(hit.folder.name)”…")
+        connectTask = Task {
+            defer { connectTask = nil }
+            do {
+                let folder = try await model.connect(hit.folder)
+                let url = folder.url.appendingPathComponent(hit.result.relativePath, isDirectory: hit.isDirectory)
+                guard FileManager.default.fileExists(atPath: url.path) else {
+                    notice = String(localized: "“\(hit.name)” is no longer on the server. Rescan to update the results.")
+                    return
+                }
+                notice = nil
+                action(url)
+                onDidOpenLater?()
+            } catch let failure as ShareMounter.Failure where failure.isCancelled {
+                notice = nil
+            } catch {
+                notice = String(localized: "Couldn't connect to “\(hit.folder.name)”. Check that this Mac is on the office network (or VPN), then try again.")
+            }
+        }
     }
 
     func copyPath(_ hit: SearchHit) {

@@ -286,6 +286,10 @@ private struct ResultRow: View {
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 2) {
+                if hit.isOffline {
+                    Label("Offline", systemImage: "network.slash")
+                        .help("This folder's server isn't connected. Opening it connects first.")
+                }
                 if let modified = hit.result.modifiedAt {
                     Text(ResultFormat.date(modified))
                 }
@@ -300,6 +304,7 @@ private struct ResultRow: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
+        .opacity(hit.isOffline && !isSelected ? 0.6 : 1)
         .foregroundStyle(isSelected ? .white : .primary)
         .background(
             RoundedRectangle(cornerRadius: 6)
