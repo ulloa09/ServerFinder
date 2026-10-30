@@ -1,4 +1,5 @@
 import AppKit
+import ServerFinderCore
 import SwiftUI
 
 struct FoldersSettingsView: View {
@@ -232,6 +233,14 @@ private struct FolderRow: View {
                 Text("\((model.itemCounts[folder.id] ?? 0).formatted()) items")
                 Text("Updated \(lastIndexed.formatted(.relative(presentation: .named)))")
                     .foregroundStyle(.secondary)
+                if let documents = model.contentCounts[folder.id], !documents.isEmpty {
+                    Text("\((documents[.indexed] ?? 0).formatted()) documents searchable")
+                        .foregroundStyle(.secondary)
+                    if let failed = documents[.failed], failed > 0 {
+                        Text("\(failed.formatted()) couldn't be read")
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 if let unreadable = model.unreadableFolders[folder.id] {
                     Label("\(unreadable.count) folders couldn't be read", systemImage: "lock.fill")
                         .foregroundStyle(.orange)

@@ -89,7 +89,7 @@ struct SearchView: View {
             )
         } else {
             VStack(spacing: 0) {
-                if controller.hasResults {
+                if controller.hasResults && model.contentSettings.isEnabled {
                     ResultsTabBar(controller: controller, isReadingDocuments: model.contentProgress != nil)
                 }
                 if controller.visibleResults.isEmpty && controller.hasResults {

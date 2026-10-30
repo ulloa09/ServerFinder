@@ -68,6 +68,7 @@ final class SearchController {
     }
 
     func switchTab() {
+        guard model.contentSettings.isEnabled else { tab = .names; return }
         tab = tab == .names ? .contents : .names
     }
 

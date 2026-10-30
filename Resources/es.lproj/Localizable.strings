@@ -152,3 +152,28 @@
 
 /* Quick Look */
 "↩ Open   ␣ Preview   ⌘↩ Show in Finder   ⌘C Copy Path" = "↩ Abrir   ␣ Vista previa   ⌘↩ Mostrar en Finder   ⌘C Copiar ruta";
+
+/* Content settings */
+"Contents" = "Contenido";
+"Search inside documents" = "Buscar dentro de los documentos";
+"ServerFinder reads the text of documents in the background after each scan and keeps it on this Mac. Turning this off stops reading and hides the Inside files tab; what was read is kept until you erase it." = "ServerFinder lee el texto de los documentos en segundo plano después de cada indexado y lo guarda en este Mac. Si lo desactivas, deja de leer y se oculta la pestaña Dentro de archivos; lo ya leído se conserva hasta que lo borres.";
+"File types" = "Tipos de archivo";
+"Text, CSV and RTF" = "Texto, CSV y RTF";
+"Recognize text in scanned PDFs" = "Reconocer texto en PDF escaneados";
+"Slower (seconds per page). Spanish and English. Runs after everything else." = "Más lento (segundos por página). Español e inglés. Se hace después de todo lo demás.";
+"Largest file to read" = "Archivo más grande que se lee";
+"Progress" = "Progreso";
+"Content search is off." = "La búsqueda dentro de documentos está desactivada.";
+"No documents read yet. Reading starts after the next scan." = "Aún no se ha leído ningún documento. La lectura empieza después del próximo indexado.";
+"All documents are up to date." = "Todos los documentos están al día.";
+"Searchable documents" = "Documentos buscables";
+"Without text" = "Sin texto";
+"Scanned PDFs" = "PDF escaneados";
+"Couldn't be read" = "No se pudieron leer";
+"Erase Stored Document Text…" = "Borrar el texto guardado de los documentos…";
+"Erase the stored text of all documents from this Mac? File names stay searchable. If content search is on, documents are read again from the start." = "¿Borrar de este Mac el texto guardado de todos los documentos? Los nombres de archivo se siguen pudiendo buscar. Si la búsqueda dentro de documentos está activada, los documentos se vuelven a leer desde el principio.";
+"Cancel" = "Cancelar";
+"Erase" = "Borrar";
+"Files you list under Excluded → Never read the contents of are never read." = "Los archivos que pongas en Excluidos → Nunca leer el contenido de nunca se leen.";
+"%@ documents searchable" = "%@ documentos buscables";
+"%@ couldn't be read" = "%@ no se pudieron leer";

@@ -73,13 +73,18 @@ final class AppModel {
     private(set) var contentProgress: ContentProgress?
     private var contentQueue: [UUID] = []
     private var contentTask: Task<Void, Never>?
-    nonisolated static let contentExtensions = TextExtractor.supportedExtensions
-    nonisolated static let contentMaxSize: Int64 = 20 * 1_024 * 1_024
+    /// What to read, and whether to read at all (Settings → Contents).
+    private(set) var contentSettings: ContentSettings {
+        didSet { ContentSettings.save(contentSettings) }
+    }
+    /// Documents read per folder, by outcome.
+    private(set) var contentCounts: [UUID: [ContentOutcome: Int]] = [:]
 
     init() {
         folders = IndexedFolderStorage.load()
         exclusions = ExclusionStorage.load()
         neverRead = ExclusionStorage.loadNeverRead()
+        contentSettings = ContentSettings.load()
         do {
             store = try IndexStore(url: Self.indexURL)
             storeError = nil
@@ -88,6 +93,7 @@ final class AppModel {
             storeError = String(describing: error)
         }
         refreshCounts()
+        refreshContentCounts()
     }
 
     static var indexURL: URL {
@@ -171,6 +177,7 @@ final class AppModel {
         guard let store else { then?(); return }
         let shares = folders.map(\.shareKey)
         let neverRead = neverRead
+        let extensions = contentSettings.extensions
         Task.detached(priority: .userInitiated) { [weak self] in
             for share in shares {
                 // A running name scan can hold the database for minutes: keep trying rather
@@ -178,7 +185,7 @@ final class AppModel {
                 for attempt in 1...60 {
                     do {
                         let updates = try store.beginContentUpdates(share: share)
-                        if try updates.removeStale(keepingExtensions: Self.contentExtensions, neverRead: neverRead) > 0 {
+                        if try updates.removeStale(keepingExtensions: extensions, neverRead: neverRead) > 0 {
                             try updates.scrubDeletedText()
                         }
                         break
@@ -195,6 +202,85 @@ final class AppModel {
 
     private func contentRemoved() {
         indexVersion += 1
+        refreshContentCounts()
+    }
+
+    // MARK: Content settings
+
+    func updateContentSettings(_ change: (inout ContentSettings) -> Void) {
+        let old = contentSettings
+        var new = old
+        change(&new)
+        guard new != old else { return }
+        contentSettings = new
+
+        guard new.isEnabled else {
+            // Stop reading; the text read so far is kept for when it's turned back on.
+            contentQueue.removeAll()
+            contentTask?.cancel()
+            indexVersion += 1
+            return
+        }
+        if new.kinds != old.kinds {
+            // Drop text of types turned off right away, then read types turned on.
+            removeNeverReadContents { [weak self] in self?.readContentsOfConnectedFolders() }
+        } else if !old.isEnabled || new.maxSizeMB > old.maxSizeMB {
+            readContentsOfConnectedFolders()
+        }
+        indexVersion += 1
+    }
+
+    /// Deletes every document's stored text from this Mac. Names stay; with content search on,
+    /// documents are read again from scratch.
+    func eraseAllContents() {
+        guard let store else { return }
+        contentQueue.removeAll()
+        contentTask?.cancel()
+        Task.detached(priority: .userInitiated) { [weak self] in
+            for attempt in 1...60 {
+                do {
+                    try store.eraseAllContents()
+                    break
+                } catch {
+                    guard attempt < 60 else { break }
+                    try? await Task.sleep(for: .seconds(5))
+                }
+            }
+            await self?.contentsErased()
+        }
+    }
+
+    private func contentsErased() {
+        contentCounts = [:]
+        indexVersion += 1
+        readContentsOfConnectedFolders()
+    }
+
+    func readContentsOfConnectedFolders() {
+        for folder in folders where folder.isConnected { enqueueContentReading(of: folder.id) }
+    }
+
+    func refreshContentCounts() {
+        guard let store else { return }
+        let folders = folders
+        Task.detached(priority: .utility) { [weak self] in
+            var counts: [UUID: [ContentOutcome: Int]] = [:]
+            for folder in folders {
+                counts[folder.id] = (try? store.contentCounts(share: folder.shareKey)) ?? [:]
+            }
+            await self?.setContentCounts(counts)
+        }
+    }
+
+    private func setContentCounts(_ counts: [UUID: [ContentOutcome: Int]]) {
+        contentCounts = counts
+    }
+
+    /// Totals over all folders.
+    var totalContentCounts: [ContentOutcome: Int] {
+        contentCounts.values.reduce(into: [:]) { total, counts in
+            total.merge(counts, uniquingKeysWith: +)
+        }
     }
 
     // MARK: Scanning
@@ -356,7 +442,8 @@ final class AppModel {
     // MARK: Reading contents
 
     private func enqueueContentReading(of folderID: UUID) {
-        guard contentProgress?.folderID != folderID, !contentQueue.contains(folderID) else { return }
+        guard contentSettings.isEnabled,
+              contentProgress?.folderID != folderID, !contentQueue.contains(folderID) else { return }
         contentQueue.append(folderID)
         startNextContentReadingIfIdle()
     }
@@ -370,10 +457,11 @@ final class AppModel {
             guard let folder = folders.first(where: { $0.id == folderID }), folder.isConnected else { continue }
             contentProgress = ContentProgress(folderID: folder.id, folderName: folder.name, done: 0, total: 0)
             let neverRead = neverRead
+            let settings = contentSettings
             contentTask = Task.detached(priority: .utility) { [weak self] in
                 let finishedNormally: Bool
                 do {
-                    try await Self.readContents(of: folder, store: store, neverRead: neverRead, model: self)
+                    try await Self.readContents(of: folder, store: store, settings: settings, neverRead: neverRead, model: self)
                     finishedNormally = true
                 } catch {
                     finishedNormally = false
@@ -387,11 +475,11 @@ final class AppModel {
     /// Reads every new or changed document of `folder`, saving each result as it goes.
     /// Stops (throwing) if cancelled or if the share disappears; the next pass continues from there.
     private nonisolated static func readContents(
-        of folder: IndexedFolder, store: IndexStore, neverRead: ExclusionRules, model: AppModel?
+        of folder: IndexedFolder, store: IndexStore, settings: ContentSettings, neverRead: ExclusionRules, model: AppModel?
     ) async throws {
         let updates = try store.beginContentUpdates(share: folder.shareKey)
-        try updates.removeStale(keepingExtensions: contentExtensions, neverRead: neverRead)
-        let pending = try updates.pendingFiles(extensions: contentExtensions, maxSize: contentMaxSize, neverRead: neverRead)
+        try updates.removeStale(keepingExtensions: settings.extensions, neverRead: neverRead)
+        let pending = try updates.pendingFiles(extensions: settings.extensions, maxSize: settings.maxSize, neverRead: neverRead)
         await model?.contentMadeProgress(done: 0, total: pending.count, becameSearchable: false)
 
         var lastReport = Date.distantPast
@@ -437,6 +525,7 @@ final class AppModel {
         contentTask = nil
         contentProgress = nil
         indexVersion += 1
+        refreshContentCounts()
         startNextContentReadingIfIdle()
     }
 
@@ -455,7 +544,7 @@ final class AppModel {
 
     /// Documents whose text contains every word of `query`.
     func searchContents(_ query: Query) async -> [SearchHit] {
-        guard let store, !query.terms.isEmpty else { return [] }
+        guard let store, contentSettings.isEnabled, !query.terms.isEmpty else { return [] }
         let results = await Task.detached(priority: .userInitiated) {
             (try? store.searchContent(query)) ?? []
         }.value
@@ -530,3 +619,32 @@ enum ExclusionStorage {
         UserDefaults.standard.set(rules.patterns, forKey: key)
     }
 }
+
+/// Settings → Contents. Saved in the user's preferences.
+struct ContentSettings: Codable, Equatable {
+    var isEnabled = true
+    var kinds: Set<DocumentKind> = Set(DocumentKind.allCases)
+    /// Text recognition for scanned PDFs.
+    var recognizesScans = true
+    var maxSizeMB = 20
+
+    static let sizeChoicesMB = [5, 10, 20, 50, 100]
+
+    var extensions: Set<String> { DocumentKind.extensions(of: kinds) }
+    var maxSize: Int64 { Int64(maxSizeMB) * 1_024 * 1_024 }
+
+    private static let key = "contentSettings"
+
+    static func load() -> ContentSettings {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let settings = try? JSONDecoder().decode(ContentSettings.self, from: data)
+        else { return ContentSettings() }
+        return settings
+    }
+
+    static func save(_ settings: ContentSettings) {
+        guard let data = try? JSONEncoder().encode(settings) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+}
+

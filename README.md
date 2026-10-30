@@ -31,6 +31,8 @@ See [docs/PRD.md](docs/PRD.md) for the full plan.
      preview of the matching text. Documents are read
      in the background after each scan; later only new or changed files are read again.
      Inside documents, words match from their beginning (`cotiz` finds "cotización").
+     **Settings → Contents** turns this on or off per file type, sets the largest file to
+     read (20 MB by default), shows progress, and can erase all stored document text.
    - **↑ / ↓** to pick a result, **Return** to open it, double-click works too.
    - **Space** previews the selected result with Quick Look (PDFs, images, Office files…)
      once you've moved through the results with ↑/↓; while you're typing, Space types a

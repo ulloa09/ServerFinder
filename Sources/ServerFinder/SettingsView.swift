@@ -11,6 +11,9 @@ struct SettingsView: View {
             FoldersSettingsView(model: model)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .tabItem { Label("Folders", systemImage: "folder") }
+            ContentSettingsView(model: model)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .tabItem { Label("Contents", systemImage: "doc.text.magnifyingglass") }
             ExclusionsSettingsView(model: model)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .tabItem { Label("Excluded", systemImage: "eye.slash") }
