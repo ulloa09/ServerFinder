@@ -156,4 +156,64 @@ import Testing
         let url = try write(Data("%PDF-1.7 not really".utf8), as: "roto.pdf")
         #expect(throws: ExtractionError.self) { try TextExtractor.text(of: url) }
     }
+
+    // MARK: PowerPoint
+
+    private func slideXML(_ paragraphs: [[String]]) -> String {
+        let body = paragraphs.map { runs in
+            "<a:p><a:pPr/>" + runs.map { "<a:r><a:rPr lang=\"es-MX\"/><a:t>\($0)</a:t></a:r>" }.joined() + "</a:p>"
+        }.joined()
+        return """
+            <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" \
+            xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">\
+            <p:cSld><p:spTree><p:sp><p:txBody>\(body)</p:txBody></p:sp></p:spTree></p:cSld></p:sld>
+            """
+    }
+
+    /// Builds a .pptx the way PowerPoint lays it out, zipped with the system zip tool.
+    private func makePresentation(_ slides: [Int: [[String]]], as name: String, compress: Bool = true) throws -> URL {
+        let work = folder.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let slidesFolder = work.appendingPathComponent("ppt/slides", isDirectory: true)
+        try FileManager.default.createDirectory(at: slidesFolder, withIntermediateDirectories: true)
+        try Data("<Types/>".utf8).write(to: work.appendingPathComponent("[Content_Types].xml"))
+        for (number, paragraphs) in slides {
+            try Data(slideXML(paragraphs).utf8).write(to: slidesFolder.appendingPathComponent("slide\(number).xml"))
+        }
+        let output = folder.appendingPathComponent(name)
+        let zip = Process()
+        zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        zip.currentDirectoryURL = work
+        zip.arguments = ["-q", "-r", compress ? "-6" : "-0", output.path, "."]
+        try zip.run()
+        zip.waitUntilExit()
+        #expect(zip.terminationStatus == 0)
+        return output
+    }
+
+    @Test(arguments: [true, false])
+    func readsSlidesInOrder(compressed: Bool) throws {
+        let url = try makePresentation([
+            1: [["Planeación anual"], ["Unidad 1"]],
+            2: [["Criterios de ", "evaluación"]],
+            10: [["Conclusiones &amp; tareas"]], // escaped, as PowerPoint writes it
+        ], as: "clase.pptx", compress: compressed)
+
+        #expect(try text(url) == "Planeación anual Unidad 1 Criterios de evaluación Conclusiones & tareas")
+    }
+
+    @Test func joinsAWordSplitIntoSeveralRuns() throws {
+        let url = try makePresentation([1: [["Evalua", "ción ", "diagnós", "tica"]]], as: "partida.pptx")
+        #expect(try text(url) == "Evaluación diagnóstica")
+    }
+
+    @Test func damagedPresentationThrows() throws {
+        let url = try write(Data("PK not really a zip".utf8), as: "rota.pptx")
+        #expect(throws: ExtractionError.self) { try TextExtractor.text(of: url) }
+    }
+
+    @Test func archiveWithoutSlidesThrows() throws {
+        let url = try makePresentation([:], as: "vacia.pptx")
+        #expect(throws: ExtractionError.self) { try TextExtractor.text(of: url) }
+    }
 }

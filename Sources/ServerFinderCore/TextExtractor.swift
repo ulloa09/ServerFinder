@@ -21,7 +21,7 @@ public enum TextExtractor {
     public static let maxCharacters = 500_000
 
     /// File types (lowercase extensions) this version can read.
-    public static let supportedExtensions: Set<String> = ["txt", "csv", "xml", "rtf", "docx", "doc", "pdf"]
+    public static let supportedExtensions: Set<String> = ["txt", "csv", "xml", "rtf", "docx", "doc", "pdf", "pptx"]
 
     /// A PDF with fewer readable characters than this per page, on average, is treated as
     /// scanned (a page number or a stamp doesn't make a scan searchable).
@@ -42,6 +42,8 @@ public enum TextExtractor {
             raw = try attributedText(of: url, type: .docFormat)
         case "pdf":
             return try pdfText(of: url)
+        case "pptx":
+            raw = try presentationText(of: url)
         default:
             return .unsupported
         }
@@ -49,6 +51,45 @@ public enum TextExtractor {
     }
 
     // MARK: Formats
+
+    /// The text of every slide, in order. A .pptx is a ZIP archive with one XML file per slide
+    /// (`ppt/slides/slide1.xml`, …) where visible text sits in `<a:t>` runs inside `<a:p>` paragraphs.
+    private static func presentationText(of url: URL) throws -> String {
+        let archive: ZipArchive
+        do {
+            archive = try ZipArchive(data: Data(contentsOf: url))
+        } catch {
+            throw ExtractionError(reason: "Couldn't open \(url.lastPathComponent) as a presentation")
+        }
+        let slides = archive.entries
+            .compactMap { entry -> (number: Int, entry: ZipArchive.Entry)? in
+                guard entry.name.hasPrefix("ppt/slides/slide"), entry.name.hasSuffix(".xml"),
+                      let number = Int(entry.name.dropFirst("ppt/slides/slide".count).dropLast(".xml".count))
+                else { return nil }
+                return (number, entry)
+            }
+            .sorted { $0.number < $1.number }
+        guard !slides.isEmpty else {
+            throw ExtractionError(reason: "\(url.lastPathComponent) has no slides")
+        }
+        return try slides
+            .map { try slideText(String(decoding: archive.contents(of: $0.entry), as: UTF8.self)) }
+            .joined(separator: " ")
+    }
+
+    private static let paragraphPattern = try! NSRegularExpression(pattern: "<a:p[ >].*?</a:p>", options: .dotMatchesLineSeparators)
+    private static let runPattern = try! NSRegularExpression(pattern: "<a:t(?: [^>]*)?>(.*?)</a:t>", options: .dotMatchesLineSeparators)
+
+    /// Pieces of one paragraph are joined as-is (PowerPoint may split a word into several runs);
+    /// paragraphs are separated by spaces.
+    static func slideText(_ xml: String) -> String {
+        let whole = NSRange(xml.startIndex..., in: xml)
+        return paragraphPattern.matches(in: xml, range: whole).map { paragraph in
+            runPattern.matches(in: xml, range: paragraph.range).compactMap { run in
+                Range(run.range(at: 1), in: xml).map { stripMarkup(String(xml[$0])) }
+            }.joined()
+        }.joined(separator: " ")
+    }
 
     private static func pdfText(of url: URL) throws -> Extraction {
         guard let document = PDFDocument(url: url) else {
