@@ -21,7 +21,7 @@ public enum TextExtractor {
     public static let maxCharacters = 500_000
 
     /// File types (lowercase extensions) this version can read.
-    public static let supportedExtensions: Set<String> = ["txt", "csv", "xml", "rtf", "docx", "doc", "pdf", "pptx"]
+    public static let supportedExtensions: Set<String> = ["txt", "csv", "xml", "rtf", "docx", "doc", "pdf", "pptx", "xlsx"]
 
     /// A PDF with fewer readable characters than this per page, on average, is treated as
     /// scanned (a page number or a stamp doesn't make a scan searchable).
@@ -44,6 +44,8 @@ public enum TextExtractor {
             return try pdfText(of: url)
         case "pptx":
             raw = try presentationText(of: url)
+        case "xlsx":
+            raw = try workbookText(of: url)
         default:
             return .unsupported
         }
@@ -87,6 +89,59 @@ public enum TextExtractor {
         return paragraphPattern.matches(in: xml, range: whole).map { paragraph in
             runPattern.matches(in: xml, range: paragraph.range).compactMap { run in
                 Range(run.range(at: 1), in: xml).map { stripMarkup(String(xml[$0])) }
+            }.joined()
+        }.joined(separator: " ")
+    }
+
+    /// The text typed into cells. An .xlsx is a ZIP archive where most cell text is stored once
+    /// in `xl/sharedStrings.xml` (`<si>` items) and the rest inline in the sheets
+    /// (`xl/worksheets/sheet1.xml`, …, `<is>` items). Numbers and formulas aren't read.
+    private static func workbookText(of url: URL) throws -> String {
+        let archive: ZipArchive
+        do {
+            archive = try ZipArchive(data: Data(contentsOf: url))
+        } catch {
+            // Password-protected workbooks aren't ZIP archives either.
+            throw ExtractionError(reason: "Couldn't open \(url.lastPathComponent) as a workbook")
+        }
+        let shared = archive.entries.first { $0.name == "xl/sharedStrings.xml" }
+        let sheets = archive.entries
+            .compactMap { entry -> (number: Int, entry: ZipArchive.Entry)? in
+                guard entry.name.hasPrefix("xl/worksheets/sheet"), entry.name.hasSuffix(".xml"),
+                      let number = Int(entry.name.dropFirst("xl/worksheets/sheet".count).dropLast(".xml".count))
+                else { return nil }
+                return (number, entry)
+            }
+            .sorted { $0.number < $1.number }
+        guard shared != nil || !sheets.isEmpty else {
+            throw ExtractionError(reason: "\(url.lastPathComponent) has no sheets")
+        }
+        var parts: [String] = []
+        if let shared {
+            parts.append(cellText(String(decoding: try archive.contents(of: shared), as: UTF8.self), item: sharedItemPattern))
+        }
+        for sheet in sheets {
+            parts.append(cellText(String(decoding: try archive.contents(of: sheet.entry), as: UTF8.self), item: inlineItemPattern))
+        }
+        return parts.joined(separator: " ")
+    }
+
+    private static let sharedItemPattern = try! NSRegularExpression(pattern: "<si(?: [^>]*)?>(.*?)</si>", options: .dotMatchesLineSeparators)
+    private static let inlineItemPattern = try! NSRegularExpression(pattern: "<is(?: [^>]*)?>(.*?)</is>", options: .dotMatchesLineSeparators)
+    private static let textPattern = try! NSRegularExpression(pattern: "<t(?: [^>]*)?>(.*?)</t>", options: .dotMatchesLineSeparators)
+    private static let phoneticPattern = try! NSRegularExpression(pattern: "<rPh[ >].*?</rPh>", options: .dotMatchesLineSeparators)
+
+    /// One string per cell, separated by spaces. The `<t>` pieces of a cell with mixed formatting
+    /// are joined as-is; phonetic guides (`<rPh>`, used for Japanese) are skipped.
+    static func cellText(_ xml: String, item: NSRegularExpression) -> String {
+        item.matches(in: xml, range: NSRange(xml.startIndex..., in: xml)).compactMap { match in
+            guard let range = Range(match.range(at: 1), in: xml) else { return nil }
+            var cell = String(xml[range])
+            if cell.contains("<rPh") {
+                cell = phoneticPattern.stringByReplacingMatches(in: cell, range: NSRange(cell.startIndex..., in: cell), withTemplate: "")
+            }
+            return textPattern.matches(in: cell, range: NSRange(cell.startIndex..., in: cell)).compactMap { run in
+                Range(run.range(at: 1), in: cell).map { stripMarkup(String(cell[$0])) }
             }.joined()
         }.joined(separator: " ")
     }

@@ -180,6 +180,11 @@ import Testing
         for (number, paragraphs) in slides {
             try Data(slideXML(paragraphs).utf8).write(to: slidesFolder.appendingPathComponent("slide\(number).xml"))
         }
+        return try zip(work, as: name, compress: compress)
+    }
+
+    /// Zips a folder's contents with the system zip tool, the way Office lays out its files.
+    private func zip(_ work: URL, as name: String, compress: Bool = true) throws -> URL {
         let output = folder.appendingPathComponent(name)
         let zip = Process()
         zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
@@ -214,6 +219,70 @@ import Testing
 
     @Test func archiveWithoutSlidesThrows() throws {
         let url = try makePresentation([:], as: "vacia.pptx")
+        #expect(throws: ExtractionError.self) { try TextExtractor.text(of: url) }
+    }
+
+    // MARK: Excel
+
+    /// Builds an .xlsx with the given shared strings file and sheets (numbered from 1).
+    private func makeWorkbook(sharedStrings: String?, sheets: [String], as name: String) throws -> URL {
+        let work = folder.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let sheetsFolder = work.appendingPathComponent("xl/worksheets", isDirectory: true)
+        try FileManager.default.createDirectory(at: sheetsFolder, withIntermediateDirectories: true)
+        try Data("<Types/>".utf8).write(to: work.appendingPathComponent("[Content_Types].xml"))
+        if let sharedStrings {
+            try Data(sharedStrings.utf8).write(to: work.appendingPathComponent("xl/sharedStrings.xml"))
+        }
+        for (index, sheet) in sheets.enumerated() {
+            try Data(sheet.utf8).write(to: sheetsFolder.appendingPathComponent("sheet\(index + 1).xml"))
+        }
+        return try zip(work, as: name)
+    }
+
+    private func sheetXML(_ cells: String) -> String {
+        """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">\
+        <sheetData><row r="1">\(cells)</row></sheetData><tableParts count="0"/></worksheet>
+        """
+    }
+
+    @Test func readsSharedAndInlineStrings() throws {
+        let shared = """
+            <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="3" uniqueCount="3">\
+            <si><t>Inventario de equipo</t></si>\
+            <si><r><t>Costo </t></r><r><rPr><b/></rPr><t xml:space="preserve">unitario</t></r></si>\
+            <si><t>Mantenimiento &amp; reparación</t><rPh sb="0" eb="1"><t>ignorar</t></rPh></si>\
+            </sst>
+            """
+        let first = sheetXML(#"<c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="C1"><v>1250.5</v></c>"#)
+        let second = sheetXML(#"<c r="A1" t="inlineStr"><is><t>Proveedor nuevo</t></is></c><c r="B1"><f>SUM(A1:A3)</f><v>42</v></c>"#)
+        let url = try makeWorkbook(sharedStrings: shared, sheets: [first, second], as: "inventario.xlsx")
+
+        #expect(try text(url) == "Inventario de equipo Costo unitario Mantenimiento & reparación Proveedor nuevo")
+    }
+
+    @Test func readsAWorkbookWithOnlyInlineStrings() throws {
+        let sheet = sheetXML(#"<c r="A1" t="inlineStr"><is><r><t>Budget </t></r><r><t>review</t></r></is></c>"#)
+        let url = try makeWorkbook(sharedStrings: nil, sheets: [sheet], as: "budget.xlsx")
+        #expect(try text(url) == "Budget review")
+    }
+
+    @Test func damagedWorkbookThrows() throws {
+        let url = try write(Data("PK not really a zip".utf8), as: "rota.xlsx")
+        #expect(throws: ExtractionError.self) { try TextExtractor.text(of: url) }
+    }
+
+    @Test func passwordProtectedWorkbookThrows() throws {
+        // Excel saves an encrypted workbook as a Compound File, not a ZIP archive.
+        let header: [UInt8] = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]
+        let url = try write(Data(header + [UInt8](repeating: 0, count: 504)), as: "protegido.xlsx")
+        #expect(throws: ExtractionError.self) { try TextExtractor.text(of: url) }
+    }
+
+    @Test func archiveWithoutSheetsThrows() throws {
+        let url = try makeWorkbook(sharedStrings: nil, sheets: [], as: "vacio.xlsx")
         #expect(throws: ExtractionError.self) { try TextExtractor.text(of: url) }
     }
 }

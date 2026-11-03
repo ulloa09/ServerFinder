@@ -29,7 +29,7 @@ See [docs/PRD.md](docs/PRD.md) for the full plan.
    - Exact names come first, then names containing every word, then files found through
      their folders; newer files first within each group.
    - Each result shows where it lives, when it was last modified and its size.
-   - Words written *inside* documents are found too (PDF, Word, PowerPoint, RTF, text, CSV, XML): those
+   - Words written *inside* documents are found too (PDF, Word, PowerPoint, Excel, RTF, text, CSV, XML): those
      appear in the **Inside files** tab (press **Tab** to switch from **Names**), with a
      preview of the matching text. Documents are read
      in the background after each scan; later only new or changed files are read again.

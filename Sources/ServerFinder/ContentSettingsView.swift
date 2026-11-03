@@ -130,6 +130,7 @@ extension DocumentKind {
         case .pdf: "PDF"
         case .word: "Word"
         case .powerPoint: "PowerPoint"
+        case .excel: "Excel"
         case .text: "Text, CSV and RTF"
         case .xml: "XML"
         }

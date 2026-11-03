@@ -205,8 +205,9 @@ private struct ResultsList: View {
             if controller.open(hit) { onDidOpen() }
         }
         .simultaneousGesture(TapGesture().onEnded { controller.selectedIndex = index })
-        // Drag a result into Mail, Finder or any app that accepts files.
-        .onDrag { NSItemProvider(contentsOf: hit.url) ?? NSItemProvider() }
+        // Drag a result into Mail, Finder, WhatsApp or any app that accepts files. A plain file
+        // URL, like Finder's own drags: apps such as WhatsApp ignore a file promise.
+        .onDrag { hit.isOffline ? NSItemProvider() : NSItemProvider(object: hit.url as NSURL) }
         .contextMenu {
             Button("Open") {
                 if controller.open(hit) { onDidOpen() }

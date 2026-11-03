@@ -5,6 +5,7 @@ public enum DocumentKind: String, CaseIterable, Codable, Sendable {
     case pdf
     case word
     case powerPoint
+    case excel
     case text
     case xml
 
@@ -13,6 +14,7 @@ public enum DocumentKind: String, CaseIterable, Codable, Sendable {
         case .pdf: ["pdf"]
         case .word: ["docx", "doc"]
         case .powerPoint: ["pptx"]
+        case .excel: ["xlsx"]
         case .text: ["txt", "csv", "rtf"]
         case .xml: ["xml"]
         }

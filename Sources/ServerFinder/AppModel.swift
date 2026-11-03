@@ -766,6 +766,8 @@ struct ContentSettings: Codable, Equatable {
     /// Text recognition for scanned PDFs.
     var recognizesScans = true
     var maxSizeMB = 20
+    /// The kinds this version offered when the settings were saved, so a kind added later starts on.
+    private var knownKinds = Set(DocumentKind.allCases)
 
     static let sizeChoicesMB = [5, 10, 20, 50, 100]
 
@@ -785,6 +787,22 @@ struct ContentSettings: Codable, Equatable {
     static func save(_ settings: ContentSettings) {
         guard let data = try? JSONEncoder().encode(settings) else { return }
         UserDefaults.standard.set(data, forKey: key)
+    }
+}
+
+extension ContentSettings {
+    /// Settings saved by an older version keep their choices; values they lack get the defaults.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = ContentSettings()
+        isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? defaults.isEnabled
+        recognizesScans = try container.decodeIfPresent(Bool.self, forKey: .recognizesScans) ?? defaults.recognizesScans
+        maxSizeMB = try container.decodeIfPresent(Int.self, forKey: .maxSizeMB) ?? defaults.maxSizeMB
+        // Saved before knownKinds existed: everything but Excel was offered then.
+        let known = try container.decodeIfPresent(Set<DocumentKind>.self, forKey: .knownKinds)
+            ?? [.pdf, .word, .powerPoint, .text, .xml]
+        let saved = try container.decodeIfPresent(Set<DocumentKind>.self, forKey: .kinds) ?? defaults.kinds
+        kinds = saved.union(defaults.knownKinds.subtracting(known))
     }
 }
 
