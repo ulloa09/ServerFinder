@@ -95,7 +95,8 @@ struct ZipArchive {
     }
 }
 
-private extension Data {
+// Little-endian reads that return 0 past the end; callers check sizes where it matters.
+extension Data {
     func uint16(at offset: Int) -> UInt16 {
         guard offset >= 0, offset + 2 <= count else { return 0 }
         let i = startIndex + offset

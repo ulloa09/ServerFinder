@@ -34,7 +34,7 @@ See [docs/PRD.md](docs/PRD.md) for the full plan.
      preview of the matching text. Documents are read
      in the background after each scan; later only new or changed files are read again.
      Inside documents, words match from their beginning (`cotiz` finds "cotización").
-     Scanned PDFs (pages that are only images) are read with macOS's text recognition, in
+     Scanned PDFs and pictures (.jpg, .png, .heic, .tiff) are read with macOS's text recognition, in
      Spanish and English, after everything else (about a third of a second per page, up to
      100 pages per document; paused in Low Power Mode or when the Mac runs hot).
      **Settings → Contents** turns this on or off per file type, sets the largest file to

@@ -30,13 +30,13 @@ struct ContentSettingsView: View {
                 }
                 Toggle(isOn: binding(\.recognizesScans)) {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("Recognize text in scanned PDFs")
+                        Text("Recognize text in scanned PDFs and images")
                         Text("About a third of a second per page, up to 100 pages per document. Spanish and English. Runs after everything else, and pauses in Low Power Mode.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
-                .disabled(!settings.kinds.contains(.pdf))
+                .disabled(settings.kinds.isDisjoint(with: ContentSettings.recognizedKinds))
                 Picker("Largest file to read", selection: binding(\.maxSizeMB)) {
                     ForEach(ContentSettings.sizeChoicesMB, id: \.self) { size in
                         Text("\(size) MB").tag(size)
@@ -96,9 +96,9 @@ struct ContentSettingsView: View {
         if !totals.isEmpty {
             LabeledContent("Searchable documents", value: totals.searchable.formatted())
             LabeledContent("Without text", value: (totals[.noText] ?? 0).formatted())
-            LabeledContent("Scanned PDFs recognized", value: (totals[.recognized] ?? 0).formatted())
+            LabeledContent("Scans and images recognized", value: (totals[.recognized] ?? 0).formatted())
             LabeledContent(
-                settings.readsScans ? "Scanned PDFs waiting for recognition" : "Scanned PDFs not recognized",
+                settings.readsScans ? "Scans and images waiting for recognition" : "Scans and images not recognized",
                 value: (totals[.needsOCR] ?? 0).formatted()
             )
             LabeledContent("Couldn't be read", value: (totals[.failed] ?? 0).formatted())
@@ -133,6 +133,7 @@ extension DocumentKind {
         case .excel: "Excel"
         case .text: "Text, CSV and RTF"
         case .xml: "XML"
+        case .image: "Images"
         }
     }
 }

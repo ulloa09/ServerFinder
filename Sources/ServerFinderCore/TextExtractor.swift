@@ -5,7 +5,7 @@ import PDFKit
 /// The outcome of reading a document's text.
 public enum Extraction: Equatable, Sendable {
     case text(String)
-    /// A document with no text layer (e.g. a scanned PDF); only text recognition can read it.
+    /// A document with no text layer (a scanned PDF or a picture); only text recognition can read it.
     case needsOCR
     /// Not a type ServerFinder can read.
     case unsupported
@@ -21,7 +21,11 @@ public enum TextExtractor {
     public static let maxCharacters = 500_000
 
     /// File types (lowercase extensions) this version can read.
-    public static let supportedExtensions: Set<String> = ["txt", "csv", "xml", "rtf", "docx", "doc", "pdf", "pptx", "xlsx"]
+    public static let supportedExtensions: Set<String> =
+        Set(["txt", "csv", "xml", "rtf", "docx", "doc", "pdf", "pptx", "xlsx", "xls"]).union(imageExtensions)
+
+    /// Pictures: only text recognition can read them.
+    public static let imageExtensions: Set<String> = ["jpg", "jpeg", "png", "heic", "tif", "tiff"]
 
     /// A PDF with fewer readable characters than this per page, on average, is treated as
     /// scanned (a page number or a stamp doesn't make a scan searchable).
@@ -29,7 +33,10 @@ public enum TextExtractor {
 
     public static func text(of url: URL) throws -> Extraction {
         let raw: String
-        switch url.pathExtension.lowercased() {
+        let pathExtension = url.pathExtension.lowercased()
+        // Not even opened here: the recognition pass reads pictures later, after everything else.
+        if imageExtensions.contains(pathExtension) { return .needsOCR }
+        switch pathExtension {
         case "txt", "csv":
             raw = try decodePlainText(Data(contentsOf: url))
         case "xml":
@@ -46,6 +53,8 @@ public enum TextExtractor {
             raw = try presentationText(of: url)
         case "xlsx":
             raw = try workbookText(of: url)
+        case "xls":
+            raw = try legacyWorkbookText(of: url)
         default:
             return .unsupported
         }
@@ -146,6 +155,23 @@ public enum TextExtractor {
         }.joined(separator: " ")
     }
 
+    /// An .xls is usually an Excel 97–2003 workbook, but accounting and banking systems often
+    /// export a web page (an HTML table) under that name, which Excel opens too.
+    private static func legacyWorkbookText(of url: URL) throws -> String {
+        let data = try Data(contentsOf: url)
+        if data.starts(with: CompoundFile.signature) {
+            return try LegacyWorkbook.text(of: data, name: url.lastPathComponent)
+        }
+        let text = decodePlainText(data)
+        guard text.drop(while: \.isWhitespace).hasPrefix("<") else {
+            throw ExtractionError(reason: "Couldn't open \(url.lastPathComponent) as a workbook")
+        }
+        return stripMarkup(text.replacingOccurrences(of: hiddenHTMLPattern, with: " ", options: .regularExpression))
+    }
+
+    /// Style sheets and scripts aren't text anyone typed.
+    private static let hiddenHTMLPattern = "(?is)<(style|script)[ >].*?</\\1>"
+
     private static func pdfText(of url: URL) throws -> Extraction {
         guard let document = PDFDocument(url: url) else {
             throw ExtractionError(reason: "Couldn't open \(url.lastPathComponent) as a PDF")
@@ -199,10 +225,30 @@ public enum TextExtractor {
         }
         text += rest
         text = text.replacingOccurrences(of: "<[^>]*>", with: " ", options: .regularExpression)
+        text = decodeNumericEntities(text)
         for (entity, character) in [("&lt;", "<"), ("&gt;", ">"), ("&quot;", "\""), ("&apos;", "'"), ("&nbsp;", " "), ("&amp;", "&")] {
             text = text.replacingOccurrences(of: entity, with: character)
         }
         return text
+    }
+
+    private static let numericEntityPattern = try! NSRegularExpression(pattern: "&#([xX]?)([0-9A-Fa-f]{1,6});")
+
+    /// `&#225;` and `&#xE1;` → "á".
+    static func decodeNumericEntities(_ text: String) -> String {
+        guard text.contains("&#") else { return text }
+        var result = text
+        let matches = numericEntityPattern.matches(in: text, range: NSRange(text.startIndex..., in: text))
+        for match in matches.reversed() {
+            guard let whole = Range(match.range, in: result),
+                  let digits = Range(match.range(at: 2), in: result),
+                  let isHex = Range(match.range(at: 1), in: result).map({ !result[$0].isEmpty }),
+                  let value = UInt32(result[digits], radix: isHex ? 16 : 10),
+                  let scalar = Unicode.Scalar(value)
+            else { continue }
+            result.replaceSubrange(whole, with: String(Character(scalar)))
+        }
+        return result
     }
 
     /// Collapses runs of whitespace (keeps the index small and previews tidy) and caps the length.

@@ -159,7 +159,8 @@
 "ServerFinder reads the text of documents in the background after each scan and keeps it on this Mac. Turning this off stops reading and hides the Inside files tab; what was read is kept until you erase it." = "ServerFinder lee el texto de los documentos en segundo plano después de cada indexado y lo guarda en este Mac. Si lo desactivas, deja de leer y se oculta la pestaña Dentro de archivos; lo ya leído se conserva hasta que lo borres.";
 "File types" = "Tipos de archivo";
 "Text, CSV and RTF" = "Texto, CSV y RTF";
-"Recognize text in scanned PDFs" = "Reconocer texto en PDF escaneados";
+"Images" = "Imágenes";
+"Recognize text in scanned PDFs and images" = "Reconocer texto en PDF escaneados e imágenes";
 "About a third of a second per page, up to 100 pages per document. Spanish and English. Runs after everything else, and pauses in Low Power Mode." = "Un tercio de segundo por página aprox., hasta 100 páginas por documento. Español e inglés. Se hace después de todo lo demás y se pausa en modo de bajo consumo.";
 "Largest file to read" = "Archivo más grande que se lee";
 "Progress" = "Progreso";
@@ -168,9 +169,9 @@
 "All documents are up to date." = "Todos los documentos están al día.";
 "Searchable documents" = "Documentos buscables";
 "Without text" = "Sin texto";
-"Scanned PDFs recognized" = "PDF escaneados reconocidos";
-"Scanned PDFs waiting for recognition" = "PDF escaneados por reconocer";
-"Scanned PDFs not recognized" = "PDF escaneados sin reconocer";
+"Scans and images recognized" = "Escaneos e imágenes reconocidos";
+"Scans and images waiting for recognition" = "Escaneos e imágenes por reconocer";
+"Scans and images not recognized" = "Escaneos e imágenes sin reconocer";
 "Couldn't be read" = "No se pudieron leer";
 "Erase Stored Document Text…" = "Borrar el texto guardado de los documentos…";
 "Erase the stored text of all documents from this Mac? File names stay searchable. If content search is on, documents are read again from the start." = "¿Borrar de este Mac el texto guardado de todos los documentos? Los nombres de archivo se siguen pudiendo buscar. Si la búsqueda dentro de documentos está activada, los documentos se vuelven a leer desde el principio.";
@@ -181,8 +182,8 @@
 "%@ couldn't be read" = "%@ no se pudieron leer";
 
 /* Text recognition (OCR) */
-"Recognizing text in scanned PDFs in “%@”… %@ of %@" = "Reconociendo texto en PDF escaneados de “%1$@”… %2$@ de %3$@";
-"Recognizing text in scanned PDFs… %@ of %@" = "Reconociendo texto en PDF escaneados… %1$@ de %2$@";
+"Recognizing text in scans and images in “%@”… %@ of %@" = "Reconociendo texto en escaneos e imágenes de “%1$@”… %2$@ de %3$@";
+"Recognizing text in scans and images… %@ of %@" = "Reconociendo texto en escaneos e imágenes… %1$@ de %2$@";
 
 /* Offline results (#11) */
 "Offline" = "Sin conexión";

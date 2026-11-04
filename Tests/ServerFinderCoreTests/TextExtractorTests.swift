@@ -61,11 +61,13 @@ import Testing
     @Test func readsXMLWithoutTheMarkup() throws {
         let xml = """
             <?xml version="1.0" encoding="UTF-8"?>
-            <alumnos><alumno nombre="x">Ana &amp; Luis</alumno><nota><![CDATA[Excelente <trabajo>]]></nota></alumnos>
+            <alumnos><alumno nombre="x">Ana &amp; Luis</alumno><nota><![CDATA[Excelente <trabajo>]]></nota>\
+            <grupo>Educaci&#243;n f&#xED;sica</grupo></alumnos>
             """
         let url = try write(Data(xml.utf8), as: "datos.xml")
         let result = try text(url)
         #expect(result.contains("Ana & Luis"))
+        #expect(result.contains("Educación física"))
         #expect(result.contains("Excelente <trabajo>"))
         #expect(!result.contains("<alumno"))
     }
@@ -86,7 +88,7 @@ import Testing
     }
 
     @Test func otherTypesAreUnsupported() throws {
-        let url = try write(Data([0xFF, 0xD8, 0xFF]), as: "foto.jpg")
+        let url = try write(Data("AC1032".utf8), as: "plano.dwg")
         #expect(try TextExtractor.text(of: url) == .unsupported)
     }
 

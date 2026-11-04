@@ -8,15 +8,17 @@ public enum DocumentKind: String, CaseIterable, Codable, Sendable {
     case excel
     case text
     case xml
+    case image
 
     public var extensions: Set<String> {
         switch self {
         case .pdf: ["pdf"]
         case .word: ["docx", "doc"]
         case .powerPoint: ["pptx"]
-        case .excel: ["xlsx"]
+        case .excel: ["xlsx", "xls"]
         case .text: ["txt", "csv", "rtf"]
         case .xml: ["xml"]
+        case .image: ["jpg", "jpeg", "png", "heic", "tif", "tiff"]
         }
     }
 

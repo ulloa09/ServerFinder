@@ -5,9 +5,9 @@ public enum ContentOutcome: String, Sendable, CaseIterable {
     case indexed
     /// Readable, but there was no text in it.
     case noText = "no_text"
-    /// A PDF without a text layer, waiting for text recognition.
+    /// A PDF without a text layer, or a picture, waiting for text recognition.
     case needsOCR = "needs_ocr"
-    /// A scanned PDF whose text was recognized from the page images.
+    /// A scanned PDF or a picture whose text was recognized.
     case recognized
     /// Damaged, password-protected or otherwise unreadable.
     case failed
@@ -161,7 +161,7 @@ public final class ContentUpdates {
         return candidates.sorted { $0.size < $1.size }
     }
 
-    /// Scanned PDFs waiting for text recognition, up to `maxSize` bytes and unchanged since they
+    /// Scanned PDFs and pictures waiting for text recognition, up to `maxSize` bytes and unchanged since they
     /// were found to need it (changed files are read normally first), leaving out what
     /// `neverRead` matches. Smallest first.
     public func pendingScans(maxSize: Int64, neverRead: ExclusionRules = .none) throws -> [ContentCandidate] {

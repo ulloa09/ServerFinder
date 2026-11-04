@@ -142,26 +142,29 @@ Sizing (2 of the user's shares, 36k files): ~10.4k PDF (1.6 GB), ~670 .docx, ~33
 51. As a user, I want to see content-reading progress (e.g. "Reading contents… 1,234 of 10,400") in the panel, the menu and Settings, so that I know how complete content search is.
 52. As a user, I want to turn content search, each file type, and OCR on or off in Settings, so that I control what is read.
 53. As a user, I want files that couldn't be read (damaged, password-protected) to be skipped without stopping the rest.
+54. As a user, I want the text of Excel workbooks (.xlsx) to be searchable. *(added later: #20)*
+55. As a user, I want the text of older Excel workbooks (.xls) to be searchable. *(added later: #21)*
+56. As a user, I want text in pictures (photos and scans saved as .jpg, .png, .heic or .tiff) to be recognized, so that photographed documents are searchable too. *(added later: #22)*
 
 ## Implementation Decisions
 
-- **TextExtractor** (deep module) — `text(of fileURL, type) throws -> Extraction` where `Extraction` is `.text(String)`, `.needsOCR` (a PDF with no text layer) or `.unsupported`. PDF via PDFKit; Word/RTF via `NSAttributedString` document readers; PowerPoint by reading the slide XML inside the .pptx archive; text/CSV/XML by decoding UTF-8 with a Windows-1252 fallback (files from a Windows server), stripping XML tags. Stored text is capped (~500k characters per file) to bound the index size.
-- **OCRReader** — renders each page of a text-less PDF and runs Vision text recognition (`VNRecognizeTextRequest`, accurate, languages es + en). A separate, lower-priority pass after normal text reading; can be turned off in Settings.
+- **TextExtractor** (deep module) — `text(of fileURL, type) throws -> Extraction` where `Extraction` is `.text(String)`, `.needsOCR` (a PDF with no text layer) or `.unsupported`. PDF via PDFKit; Word/RTF via `NSAttributedString` document readers; PowerPoint by reading the slide XML inside the .pptx archive; Excel by reading the shared strings and inline strings inside the .xlsx archive, and the shared string table and label records of an Excel 97–2003 .xls (a Compound File read by a small built-in reader; .xls files that are really exported web pages are read as HTML); numbers and formulas aren't read; pictures go straight to `.needsOCR` without being opened; text/CSV/XML by decoding UTF-8 with a Windows-1252 fallback (files from a Windows server), stripping XML tags. Stored text is capped (~500k characters per file) to bound the index size.
+- **OCRReader** — renders each page of a text-less PDF, or decodes a picture with ImageIO (turned upright, every page of a multi-page TIFF), and runs Vision text recognition (`VNRecognizeTextRequest`, accurate, languages es + en). A separate, lower-priority pass after normal text reading; can be turned off in Settings.
 - **ContentStore** (inside the existing SQLite index) — an FTS5 table of document text using the `unicode61 remove_diacritics 2` tokenizer (word-based, much smaller than trigram), plus a per-file state table (share, path, size, modified date, outcome: indexed / no text / needs OCR / too big / failed). Interface: list files that need reading (new or changed since last read, of enabled types, under the size limit), store text or an outcome, drop state for files that no longer exist, and `searchContent(Query, limit) -> [ContentResult]` returning a preview snippet via FTS5 `snippet()`. Terms are matched as word prefixes; the extension filter applies.
 - **ContentIndexer** — runs after each successful name scan of a folder: reads candidates one by one at utility priority, stores results file by file (so it resumes after a restart or disconnect), stops when the share unmounts, and reports progress to the model. Never writes to the server.
 - **UI** — "Inside files" section in the search panel with preview lines; progress in the panel footer, the menu bar menu and Settings; a **Contents** settings tab with content search on/off, file types, OCR on/off, and the size limit (default 20 MB).
 
 ## Testing Decisions
 
-- **TextExtractor**: fixture documents generated in the tests (text, CSV, XML, RTF/Word written with `NSAttributedString`, PDF drawn with Core Graphics, a minimal .pptx archive) — the expected words come out; accents preserved; a PDF without text reports `.needsOCR`; a damaged file throws.
+- **TextExtractor**: fixture documents generated in the tests (text, CSV, XML, RTF/Word written with `NSAttributedString`, PDF drawn with Core Graphics, a minimal .pptx archive, an .xlsx with shared and inline strings, .xls files built byte by byte in the tests) — the expected words come out; accents preserved; a PDF without text reports `.needsOCR`; a damaged file throws.
 - **ContentStore**: against a temporary database — finds documents by words and word prefixes, ignoring case and accents; requires all words; applies the extension filter; snippet contains the words; changed files are listed again and unchanged ones aren't; deleted files' content is removed; files above the size limit are not listed.
-- **OCRReader**: a test PDF made from an image of text is recognized (Spanish and English sample).
+- **OCRReader**: a test PDF made from an image of text is recognized (Spanish and English sample); so are a PNG, every page of a two-page TIFF and a sideways JPEG; tiny pictures have no text; damaged ones throw.
 - ContentIndexer scheduling and UI: manual testing on the real shares, including timing the first full read.
 
 ## Out of Scope
 
-- Excel (.xlsx, .xls) contents — not selected for now; easy to add as another TextExtractor type later.
-- Images other than scanned PDFs (photos, .jpg/.png OCR), audio, video.
+- Excel 95 and older workbooks (.xls saved before Excel 97). (Excel 97–2003 .xls was added in #21, .xlsx in #20.)
+- Audio and video. (Pictures were added in #22.)
 - Searching for exact phrases or with operators (OR, NOT) — every word must appear, in any order.
 - Reading files larger than 20 MB by default.
 

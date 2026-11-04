@@ -7,7 +7,7 @@ struct ContentProgress: Equatable {
     var folderName: String
     var done: Int
     var total: Int
-    /// Recognizing text in scanned PDFs, rather than reading documents.
+    /// Recognizing text in scanned PDFs and pictures, rather than reading documents.
     var isRecognizing = false
 }
 
@@ -578,7 +578,7 @@ final class AppModel {
         }
     }
 
-    /// Recognizes the text of `folder`'s scanned PDFs, saving each one as it goes. Waits while a
+    /// Recognizes the text of `folder`'s scanned PDFs and pictures, saving each one as it goes. Waits while a
     /// name scan runs, in Low Power Mode or when the Mac is hot; stops (throwing) if cancelled
     /// or if the share disappears.
     private nonisolated static func recognizeScans(
@@ -595,7 +595,7 @@ final class AppModel {
             }
             let url = folder.url.appendingPathComponent(file.relativePath)
             do {
-                let text = try OCRReader.text(ofScannedPDF: url)
+                let text = try OCRReader.text(of: url)
                 try updates.record(file, outcome: .recognized, text: text)
             } catch let error as ExtractionError {
                 guard FileManager.default.fileExists(atPath: folder.path) else { throw error }
@@ -688,7 +688,7 @@ final class AppModel {
         if isQueued(folder) { return String(localized: "Waiting to index…") }
         if let reading = contentProgress, reading.folderID == folder.id, reading.total > 0 {
             if reading.isRecognizing {
-                return String(localized: "Recognizing text in scanned PDFs… \(reading.done.formatted()) of \(reading.total.formatted())")
+                return String(localized: "Recognizing text in scans and images… \(reading.done.formatted()) of \(reading.total.formatted())")
             }
             return String(localized: "Reading documents… \(reading.done.formatted()) of \(reading.total.formatted())")
         }
@@ -705,7 +705,7 @@ final class AppModel {
     var contentStatusText: String? {
         guard let reading = contentProgress, reading.total > 0 else { return nil }
         if reading.isRecognizing {
-            return String(localized: "Recognizing text in scanned PDFs in “\(reading.folderName)”… \(reading.done.formatted()) of \(reading.total.formatted())")
+            return String(localized: "Recognizing text in scans and images in “\(reading.folderName)”… \(reading.done.formatted()) of \(reading.total.formatted())")
         }
         return String(localized: "Reading documents in “\(reading.folderName)”… \(reading.done.formatted()) of \(reading.total.formatted())")
     }
@@ -763,7 +763,7 @@ extension Dictionary where Key == ContentOutcome, Value == Int {
 struct ContentSettings: Codable, Equatable {
     var isEnabled = true
     var kinds: Set<DocumentKind> = Set(DocumentKind.allCases)
-    /// Text recognition for scanned PDFs.
+    /// Text recognition for scanned PDFs and pictures.
     var recognizesScans = true
     var maxSizeMB = 20
     /// The kinds this version offered when the settings were saved, so a kind added later starts on.
@@ -773,7 +773,10 @@ struct ContentSettings: Codable, Equatable {
 
     var extensions: Set<String> { DocumentKind.extensions(of: kinds) }
     var maxSize: Int64 { Int64(maxSizeMB) * 1_024 * 1_024 }
-    var readsScans: Bool { isEnabled && recognizesScans && kinds.contains(.pdf) }
+    var readsScans: Bool { isEnabled && recognizesScans && !kinds.isDisjoint(with: Self.recognizedKinds) }
+
+    /// The kinds that need text recognition: scanned PDFs and pictures.
+    static let recognizedKinds: Set<DocumentKind> = [.pdf, .image]
 
     private static let key = "contentSettings"
 

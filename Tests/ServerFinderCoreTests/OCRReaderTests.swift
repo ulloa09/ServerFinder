@@ -70,4 +70,75 @@ import Testing
         try Data("%PDF-1.7 not really".utf8).write(to: url)
         #expect(throws: ExtractionError.self) { try OCRReader.text(ofScannedPDF: url) }
     }
+
+    // MARK: Images
+
+    /// Saves pictures as one file (several pages only for TIFF), with optional EXIF orientation.
+    private func writeImage(_ images: [CGImage], type: String, as name: String, orientation: Int? = nil) throws -> URL {
+        let url = folder.appendingPathComponent(name)
+        let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, type as CFString, images.count, nil))
+        let properties = orientation.map { [kCGImagePropertyOrientation: $0] as CFDictionary }
+        for image in images { CGImageDestinationAddImage(destination, image, properties) }
+        #expect(CGImageDestinationFinalize(destination))
+        return url
+    }
+
+    /// The image turned a quarter turn counterclockwise, the way a phone held sideways stores it.
+    private func rotatedCounterclockwise(_ image: CGImage) throws -> CGImage {
+        let context = try #require(CGContext(
+            data: nil, width: image.height, height: image.width, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue
+        ))
+        context.translateBy(x: CGFloat(image.height), y: 0)
+        context.rotate(by: .pi / 2)
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return try #require(context.makeImage())
+    }
+
+    @Test func picturesGoStraightToRecognition() throws {
+        // Not opened by the text reader, so even a broken picture waits for recognition.
+        let url = folder.appendingPathComponent("foto.JPG")
+        try Data("not an image".utf8).write(to: url)
+        #expect(try TextExtractor.text(of: url) == .needsOCR)
+    }
+
+    @Test func recognizesAPNG() throws {
+        let url = try writeImage([pageImage(["Acta de entrega", "Inventory checklist"])], type: "public.png", as: "acta.png")
+        let text = try OCRReader.text(of: url)
+        #expect(text.contains("Acta de entrega"))
+        #expect(text.contains("Inventory checklist"))
+    }
+
+    @Test func readsEveryPageOfATIFF() throws {
+        let url = try writeImage(
+            [pageImage(["Primera hoja del fax"]), pageImage(["Second page of the fax"])],
+            type: "public.tiff", as: "fax.tif"
+        )
+        let text = try OCRReader.text(of: url)
+        #expect(text.contains("Primera hoja"))
+        #expect(text.contains("Second page"))
+        #expect(text.firstRange(of: "Primera")!.lowerBound < text.firstRange(of: "Second")!.lowerBound, "pages stay in order")
+    }
+
+    @Test func readsSidewaysPhotos() throws {
+        let sideways = try rotatedCounterclockwise(pageImage(["Recibo de pago número 42"]))
+        // Orientation 6: show it turned a quarter turn clockwise.
+        let url = try writeImage([sideways], type: "public.jpeg", as: "recibo.jpeg", orientation: 6)
+        #expect(try OCRReader.text(of: url).contains("Recibo de pago"))
+    }
+
+    @Test func tinyPictureHasNoText() throws {
+        let context = try #require(CGContext(
+            data: nil, width: 16, height: 16, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue
+        ))
+        let url = try writeImage([try #require(context.makeImage())], type: "public.png", as: "icono.png")
+        #expect(try OCRReader.text(of: url).isEmpty)
+    }
+
+    @Test func damagedPictureThrows() throws {
+        let url = folder.appendingPathComponent("rota.png")
+        try Data("not an image".utf8).write(to: url)
+        #expect(throws: ExtractionError.self) { try OCRReader.text(of: url) }
+    }
 }
