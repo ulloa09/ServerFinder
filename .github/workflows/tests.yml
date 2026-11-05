@@ -12,5 +12,24 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+      - name: Show the toolchain
+        run: xcode-select -p && swift --version
+      - name: Build the tests
+        run: swift build --build-tests # GitHub's Macs have full Xcode, so no extra flags
       - name: Run tests
-        run: scripts/test.sh --disable-xctest # there are only Swift Testing tests
+        run: |
+          # If the run stalls, print where the test processes are waiting instead of hanging.
+          scripts/test.sh --disable-xctest --skip-build --verbose &
+          tests=$!
+          for _ in $(seq 60); do kill -0 $tests 2>/dev/null || break; sleep 5; done
+          if kill -0 $tests 2>/dev/null; then
+            echo "::error::Tests still running after 5 minutes. Where the test processes are waiting:"
+            ps -axo pid,etime,command | grep -iE "swiftpm|ServerFinder" | grep -v grep
+            for pid in $(pgrep -f -i "swiftpm-testing|ServerFinderPackageTests"); do
+              sample "$pid" 3 -mayDie -file "$RUNNER_TEMP/sample-$pid.txt" > /dev/null 2>&1
+              head -200 "$RUNNER_TEMP/sample-$pid.txt"
+            done
+            kill $tests
+            exit 1
+          fi
+          wait $tests
