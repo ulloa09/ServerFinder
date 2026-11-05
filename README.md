@@ -4,7 +4,8 @@
 
 <p align="center">
   Find files on your office server instantly, by name or by the words inside them.<br>
-  A free, open-source menu bar app for macOS.
+  A free, open-source menu bar app for macOS.<br>
+  <a href="https://ulloa09.github.io/ServerFinder/"><b>ulloa09.github.io/ServerFinder</b></a> — try the search in your browser
 </p>
 
 <p align="center">

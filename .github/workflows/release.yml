@@ -12,12 +12,13 @@ permissions:
 jobs:
   release:
     runs-on: macos-26
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0 # the build number is the commit count
       - name: Run tests
-        run: scripts/test.sh
+        run: scripts/test.sh --disable-xctest # there are only Swift Testing tests
       - name: Build the disk image
         run: scripts/release.sh "${GITHUB_REF_NAME#v}"
       - name: Create a draft release

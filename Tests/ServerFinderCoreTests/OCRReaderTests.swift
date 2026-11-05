@@ -3,7 +3,8 @@ import Foundation
 import Testing
 @testable import ServerFinderCore
 
-@Suite struct OCRReaderTests {
+// Text recognition can stall on virtual Macs (such as GitHub's); fail instead of hanging.
+@Suite(.timeLimit(.minutes(1))) struct OCRReaderTests {
     let folder: URL
 
     init() throws {
