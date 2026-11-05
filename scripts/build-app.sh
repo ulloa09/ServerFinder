@@ -1,16 +1,27 @@
 #!/bin/bash
 # Builds build/ServerFinder.app. Pass --install to also copy it to /Applications.
+# ARCHS="arm64 x86_64" builds one app for Apple silicon and Intel Macs; VERSION=1.2.0 stamps
+# that version into the app (both are set by scripts/release.sh).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-swift build -c release --arch arm64
-bin_dir="$(swift build -c release --arch arm64 --show-bin-path)"
+read -r -a archs <<< "${ARCHS:-arm64}"
+binaries=()
+for arch in "${archs[@]}"; do
+    swift build -c release --arch "$arch"
+    binaries+=("$(swift build -c release --arch "$arch" --show-bin-path)/ServerFinder")
+done
 
 app="build/ServerFinder.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-cp "$bin_dir/ServerFinder" "$app/Contents/MacOS/"
+lipo -create "${binaries[@]}" -output "$app/Contents/MacOS/ServerFinder"
 cp Resources/Info.plist "$app/Contents/"
+if [[ -n "${VERSION:-}" ]]; then
+    plutil -replace CFBundleShortVersionString -string "$VERSION" "$app/Contents/Info.plist"
+    # The build number only has to grow; the commit count does.
+    plutil -replace CFBundleVersion -string "$(git rev-list --count HEAD)" "$app/Contents/Info.plist"
+fi
 cp -R Resources/*.lproj Resources/*.icns "$app/Contents/Resources/"
 # Ad-hoc signature: enough to run on this Mac.
 codesign --force --sign - "$app"
