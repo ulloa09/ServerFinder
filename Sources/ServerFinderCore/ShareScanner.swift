@@ -58,7 +58,7 @@ public struct ShareScanner: Sendable {
         }
     }
 
-    private static let resourceKeys: [URLResourceKey] = [
+    fileprivate static let resourceKeys: [URLResourceKey] = [
         .nameKey, .isDirectoryKey, .isPackageKey, .fileSizeKey, .contentModificationDateKey,
     ]
 
@@ -71,6 +71,11 @@ public struct ShareScanner: Sendable {
     /// Walks the tree, listing up to `concurrency` folders at once: over the network each
     /// listing mostly waits for the server, so several in flight hide that wait. Everything
     /// else (filtering, batching, `emit`) happens on the calling thread.
+    ///
+    /// The listings run on the scanner's own threads, not on Dispatch: this function blocks
+    /// while it waits for them, and it's usually called from a Swift concurrency thread. On a
+    /// Mac with few cores, blocked callers can use up the threads Dispatch would hand out, and
+    /// the listings would then never start.
     static func walk(
         root: URL, exclusions: ExclusionRules = .none, batchSize: Int, concurrency: Int = defaultConcurrency,
         emit: (ScanBatch) -> Void
@@ -78,8 +83,8 @@ public struct ShareScanner: Sendable {
         let root = root.standardizedFileURL
         guard isFolder(root) else { throw ScanError.rootUnavailable(path: root.path) }
 
-        let listings = ListingQueue()
-        let queue = DispatchQueue(label: "ShareScanner.listing", qos: .utility, attributes: .concurrent)
+        let listings = ListingQueue(root: root, workerLimit: max(concurrency, 1))
+        defer { listings.stop() }
         // Folders waiting to be listed, by path relative to the root ("" is the root).
         var waiting: [String] = [""]
         var inFlight = 0
@@ -98,15 +103,7 @@ public struct ShareScanner: Sendable {
             try Task.checkCancellation()
             while inFlight < max(concurrency, 1), let folder = waiting.popLast() {
                 inFlight += 1
-                let url = folder.isEmpty ? root : root.appendingPathComponent(folder, isDirectory: true)
-                queue.async {
-                    let result = Result {
-                        try FileManager.default.contentsOfDirectory(
-                            at: url, includingPropertiesForKeys: resourceKeys, options: [.skipsHiddenFiles]
-                        )
-                    }
-                    listings.deliver(Listing(folder: folder, result: result))
-                }
+                listings.request(folder)
             }
             let listing = listings.next()
             inFlight -= 1
@@ -177,16 +174,38 @@ private struct Listing: @unchecked Sendable {
     let result: Result<[URL], any Error>
 }
 
-/// Hands finished listings from the listing threads to the walk.
+/// Lists folders on a few threads of its own and hands the results to the walk.
 private final class ListingQueue: @unchecked Sendable {
+    private let root: URL
+    private let workerLimit: Int
     private let condition = NSCondition()
+    private var requested: [String] = []
     private var done: [Listing] = []
+    private var workers = 0
+    private var idleWorkers = 0
+    private var stopped = false
 
-    func deliver(_ listing: Listing) {
+    init(root: URL, workerLimit: Int) {
+        self.root = root
+        self.workerLimit = workerLimit
+    }
+
+    /// Asks for `folder` (relative to the root) to be listed. Starts another thread if all
+    /// the current ones are busy and the limit allows it.
+    func request(_ folder: String) {
         condition.lock()
-        done.append(listing)
-        condition.signal()
+        requested.append(folder)
+        let startWorker = idleWorkers == 0 && workers < workerLimit
+        if startWorker { workers += 1 }
+        condition.broadcast()
         condition.unlock()
+
+        if startWorker {
+            let thread = Thread { [self] in work() }
+            thread.name = "ShareScanner.listing"
+            thread.qualityOfService = .utility
+            thread.start()
+        }
     }
 
     /// Waits for the next finished listing.
@@ -195,5 +214,43 @@ private final class ListingQueue: @unchecked Sendable {
         defer { condition.unlock() }
         while done.isEmpty { condition.wait() }
         return done.removeFirst()
+    }
+
+    /// Lets the threads end once they finish the listing they're on.
+    func stop() {
+        condition.lock()
+        stopped = true
+        requested.removeAll()
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    private func work() {
+        while let folder = nextRequest() {
+            let url = folder.isEmpty ? root : root.appendingPathComponent(folder, isDirectory: true)
+            let result = Result {
+                try FileManager.default.contentsOfDirectory(
+                    at: url, includingPropertiesForKeys: ShareScanner.resourceKeys, options: [.skipsHiddenFiles]
+                )
+            }
+            condition.lock()
+            done.append(Listing(folder: folder, result: result))
+            condition.broadcast()
+            condition.unlock()
+        }
+    }
+
+    /// The next folder to list, or nil once the walk is over.
+    private func nextRequest() -> String? {
+        condition.lock()
+        defer { condition.unlock() }
+        idleWorkers += 1
+        defer { idleWorkers -= 1 }
+        while requested.isEmpty && !stopped { condition.wait() }
+        if stopped {
+            workers -= 1
+            return nil
+        }
+        return requested.removeFirst()
     }
 }
