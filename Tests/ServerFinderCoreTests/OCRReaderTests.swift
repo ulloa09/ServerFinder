@@ -3,8 +3,10 @@ import Foundation
 import Testing
 @testable import ServerFinderCore
 
-// Text recognition can stall on virtual Macs (such as GitHub's); fail instead of hanging.
-@Suite(.timeLimit(.minutes(1))) struct OCRReaderTests {
+// One recognition at a time, like the app: on a Mac with few cores (such as GitHub's, with 3),
+// several running at once starve each other inside Vision and never finish.
+// The time limit can't interrupt a stuck recognition; the CI workflow's watchdog stops those.
+@Suite(.serialized, .timeLimit(.minutes(1))) struct OCRReaderTests {
     let folder: URL
 
     init() throws {
